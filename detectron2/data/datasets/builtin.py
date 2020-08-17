@@ -26,6 +26,7 @@ from .cityscapes import load_cityscapes_instances, load_cityscapes_semantic
 from .lvis import get_lvis_instances_meta, register_lvis_instances
 from .pascal_voc import register_pascal_voc
 from .register_coco import register_coco_instances, register_coco_panoptic_separated
+from .register_SKU import register_SKU_instances
 
 # ==== Predefined datasets and splits for COCO ==========
 
@@ -99,6 +100,35 @@ _PREDEFINED_SPLITS_COCO_PANOPTIC = {
         "coco/panoptic_stuff_val2017_100",
     ),
 }
+
+
+_PREDEFINED_SPLITS_SKU = {}
+_PREDEFINED_SPLITS_SKU["sku"] = {
+    "coco_2014_train": ("coco/train2014", "coco/annotations/instances_train2014.json"),
+    "coco_2014_val": ("coco/val2014", "coco/annotations/instances_val2014.json"),
+    "coco_2014_minival": ("coco/val2014", "coco/annotations/instances_minival2014.json"),
+    "coco_2014_minival_100": ("coco/val2014", "coco/annotations/instances_minival2014_100.json"),
+    "coco_2014_valminusminival": (
+        "coco/val2014",
+        "coco/annotations/instances_valminusminival2014.json",
+    ),
+    "coco_2017_train": ("coco/train2017", "coco/annotations/instances_train2017.json"),
+    "coco_2017_val": ("coco/val2017", "coco/annotations/instances_val2017.json"),
+    "coco_2017_test": ("coco/test2017", "coco/annotations/image_info_test2017.json"),
+    "coco_2017_test-dev": ("coco/test2017", "coco/annotations/image_info_test-dev2017.json"),
+    "coco_2017_val_100": ("coco/val2017", "coco/annotations/instances_val2017_100.json"),
+}
+
+def register_all_sku(root):
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_SKU.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_SKU_instances(
+                key,
+                _get_builtin_metadata(dataset_name),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
 
 
 def register_all_coco(root):
@@ -224,3 +254,4 @@ register_all_coco(_root)
 register_all_lvis(_root)
 register_all_cityscapes(_root)
 register_all_pascal_voc(_root)
+register_all_sku(_root)
