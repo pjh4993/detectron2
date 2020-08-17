@@ -434,7 +434,6 @@ def convert_to_coco_json(dataset_name, output_file, allow_cached=True):
             with PathManager.open(output_file, "w") as f:
                 json.dump(coco_dict, f)
 
-
 if __name__ == "__main__":
     """
     Test the COCO json dataset loader.

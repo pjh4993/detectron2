@@ -103,20 +103,10 @@ _PREDEFINED_SPLITS_COCO_PANOPTIC = {
 
 
 _PREDEFINED_SPLITS_SKU = {}
-_PREDEFINED_SPLITS_SKU["sku"] = {
-    "coco_2014_train": ("coco/train2014", "coco/annotations/instances_train2014.json"),
-    "coco_2014_val": ("coco/val2014", "coco/annotations/instances_val2014.json"),
-    "coco_2014_minival": ("coco/val2014", "coco/annotations/instances_minival2014.json"),
-    "coco_2014_minival_100": ("coco/val2014", "coco/annotations/instances_minival2014_100.json"),
-    "coco_2014_valminusminival": (
-        "coco/val2014",
-        "coco/annotations/instances_valminusminival2014.json",
-    ),
-    "coco_2017_train": ("coco/train2017", "coco/annotations/instances_train2017.json"),
-    "coco_2017_val": ("coco/val2017", "coco/annotations/instances_val2017.json"),
-    "coco_2017_test": ("coco/test2017", "coco/annotations/image_info_test2017.json"),
-    "coco_2017_test-dev": ("coco/test2017", "coco/annotations/image_info_test-dev2017.json"),
-    "coco_2017_val_100": ("coco/val2017", "coco/annotations/instances_val2017_100.json"),
+_PREDEFINED_SPLITS_SKU["SKU"] = {
+    "SKU_train": ("SKU110/train", "SKU110/annotations/annotations_train.csv"),
+    "SKU_val": ("SKU110/val", "SKU110/annotations/annotations_val.csv"),
+    "SKU_test": ("SKU110/test", "SKU110/annotations/annotations_test.csv"),
 }
 
 def register_all_sku(root):

@@ -36,9 +36,11 @@ class DatasetCatalog(object):
                 It must return the same results if called multiple times.
         """
         assert callable(func), "You must register a function with `DatasetCatalog.register`!"
+        """
         assert name not in DatasetCatalog._REGISTERED, "Dataset '{}' is already registered!".format(
             name
         )
+        """
         DatasetCatalog._REGISTERED[name] = func
 
     @staticmethod

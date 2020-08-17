@@ -6,7 +6,6 @@ import json
 import logging
 import numpy as np
 import os
-import pyskutools.mask as mask_util
 from fvcore.common.file_io import PathManager, file_lock
 from fvcore.common.timer import Timer
 from PIL import Image
@@ -25,7 +24,7 @@ logger = logging.getLogger(__name__)
 __all__ = ["load_sku_json", "convert_to_sku_json"]
 
 
-def load_sku_json(json_file, image_root, dataset_name=None, extra_annotation_keys=None):
+def load_sku_json(csv_file, image_root, dataset_name=None, extra_annotation_keys=None):
     """
     Load a json file with SKU's instances annotation format.
     Currently supports instance detection, instance segmentation,
@@ -50,52 +49,23 @@ def load_sku_json(json_file, image_root, dataset_name=None, extra_annotation_key
         1. This function does not read the image files.
            The results do not have the "image" field.
     """
-    from pyskutools.sku import SKU
+    from .pyskutools import SKU
 
     timer = Timer()
-    json_file = PathManager.get_local_path(json_file)
+    csv_file = PathManager.get_local_path(csv_file)
     with contextlib.redirect_stdout(io.StringIO()):
-        sku_api = SKU(json_file)
+        sku_api = SKU(csv_file)
     if timer.seconds() > 1:
-        logger.info("Loading {} takes {:.2f} seconds.".format(json_file, timer.seconds()))
-
-    id_map = None
-    if dataset_name is not None:
-        meta = MetadataCatalog.get(dataset_name)
-        cat_ids = sorted(sku_api.getCatIds())
-        cats = sku_api.loadCats(cat_ids)
-        # The categories in a custom json file may not be sorted.
-        thing_classes = [c["name"] for c in sorted(cats, key=lambda x: x["id"])]
-        meta.thing_classes = thing_classes
-
-        # In SKU, certain category ids are artificially removed,
-        # and by convention they are always ignored.
-        # We deal with SKU's id issue and translate
-        # the category ids to contiguous ids in [0, 80).
-
-        # It works by looking at the "categories" field in the json, therefore
-        # if users' own json also have incontiguous ids, we'll
-        # apply this mapping as well but print a warning.
-        if not (min(cat_ids) == 1 and max(cat_ids) == len(cat_ids)):
-            if "sku" not in dataset_name:
-                logger.warning(
-                    """
-Category ids in annotations are not in [1, #categories]! We'll apply a mapping for you.
-"""
-                )
-        id_map = {v: i for i, v in enumerate(cat_ids)}
-        meta.thing_dataset_id_to_contiguous_id = id_map
+        logger.info("Loading {} takes {:.2f} seconds.".format(csv_file, timer.seconds()))
 
     # sort indices for reproducible results
     img_ids = sorted(sku_api.imgs.keys())
     # imgs is a list of dicts, each looks something like:
-    # {'license': 4,
-    #  'url': 'http://farm6.staticflickr.com/5454/9413846304_881d5e5c3b_z.jpg',
-    #  'file_name': 'SKU_val2014_000000001268.jpg',
+    # {'file_name': 'test_0.jpg',
     #  'height': 427,
     #  'width': 640,
-    #  'date_captured': '2013-11-17 05:57:24',
-    #  'id': 1268}
+    #  'image_id' : 0 (same with file name)
+    # }
     imgs = sku_api.loadImgs(img_ids)
     # anns is a list[list[dict]], where each dict is an annotation
     # record for an object. The inner list enumerates the objects in an image
@@ -114,22 +84,13 @@ Category ids in annotations are not in [1, #categories]! We'll apply a mapping f
     #  ...]
     anns = [sku_api.imgToAnns[img_id] for img_id in img_ids]
 
-    if "minival" not in json_file:
-        # The popular valminusminival & minival annotations for SKU2014 contain this bug.
-        # However the ratio of buggy annotations there is tiny and does not affect accuracy.
-        # Therefore we explicitly white-list them.
-        ann_ids = [ann["id"] for anns_per_image in anns for ann in anns_per_image]
-        assert len(set(ann_ids)) == len(ann_ids), "Annotation ids in '{}' are not unique!".format(
-            json_file
-        )
-
     imgs_anns = list(zip(imgs, anns))
 
-    logger.info("Loaded {} images in SKU format from {}".format(len(imgs_anns), json_file))
+    logger.info("Loaded {} images in SKU format from {}".format(len(imgs_anns), csv_file))
 
     dataset_dicts = []
 
-    ann_keys = ["iscrowd", "bbox", "keypoints", "category_id"] + (extra_annotation_keys or [])
+    ann_keys = sku_api.ann_keys + (extra_annotation_keys or [])
 
     num_instances_without_valid_segmentation = 0
 
@@ -151,50 +112,13 @@ Category ids in annotations are not in [1, #categories]! We'll apply a mapping f
             # can trigger this assertion.
             assert anno["image_id"] == image_id
 
-            assert anno.get("ignore", 0) == 0, '"ignore" in SKU json file is not supported.'
-
             obj = {key: anno[key] for key in ann_keys if key in anno}
 
-            segm = anno.get("segmentation", None)
-            if segm:  # either list[list[float]] or dict(RLE)
-                if isinstance(segm, dict):
-                    if isinstance(segm["counts"], list):
-                        # convert to compressed RLE
-                        segm = mask_util.frPyObjects(segm, *segm["size"])
-                else:
-                    # filter out invalid polygons (< 3 points)
-                    segm = [poly for poly in segm if len(poly) % 2 == 0 and len(poly) >= 6]
-                    if len(segm) == 0:
-                        num_instances_without_valid_segmentation += 1
-                        continue  # ignore this instance
-                obj["segmentation"] = segm
-
-            keypts = anno.get("keypoints", None)
-            if keypts:  # list[int]
-                for idx, v in enumerate(keypts):
-                    if idx % 3 != 2:
-                        # SKU's segmentation coordinates are floating points in [0, H or W],
-                        # but keypoint coordinates are integers in [0, H-1 or W-1]
-                        # Therefore we assume the coordinates are "pixel indices" and
-                        # add 0.5 to convert to floating point coordinates.
-                        keypts[idx] = v + 0.5
-                obj["keypoints"] = keypts
-
             obj["bbox_mode"] = BoxMode.XYWH_ABS
-            if id_map:
-                obj["category_id"] = id_map[obj["category_id"]]
             objs.append(obj)
         record["annotations"] = objs
         dataset_dicts.append(record)
 
-    if num_instances_without_valid_segmentation > 0:
-        logger.warning(
-            "Filtered out {} instances without valid segmentation. ".format(
-                num_instances_without_valid_segmentation
-            )
-            + "There might be issues in your dataset generation process. "
-            "A valid polygon should be a list[float] with even length >= 6."
-        )
     return dataset_dicts
 
 
@@ -220,14 +144,7 @@ def convert_to_sku_dict(dataset_name):
 
     dataset_dicts = DatasetCatalog.get(dataset_name)
     metadata = MetadataCatalog.get(dataset_name)
-
-    # unmap the category mapping ids for SKU
-    if hasattr(metadata, "thing_dataset_id_to_contiguous_id"):
-        reverse_id_mapping = {v: k for k, v in metadata.thing_dataset_id_to_contiguous_id.items()}
-        reverse_id_mapper = lambda contiguous_id: reverse_id_mapping[contiguous_id]  # noqa
-    else:
-        reverse_id_mapper = lambda contiguous_id: contiguous_id  # noqa
-
+    #??? SKU for categories
     categories = [
         {"id": reverse_id_mapper(id), "name": name}
         for id, name in enumerate(metadata.thing_classes)
@@ -266,9 +183,6 @@ def convert_to_sku_dict(dataset_name):
             sku_annotation["id"] = len(sku_annotations) + 1
             sku_annotation["image_id"] = sku_image["id"]
             sku_annotation["bbox"] = [round(float(x), 3) for x in bbox]
-            sku_annotation["area"] = float(area)
-            sku_annotation["iscrowd"] = annotation.get("iscrowd", 0)
-            sku_annotation["category_id"] = reverse_id_mapper(annotation["category_id"])
 
             sku_annotations.append(sku_annotation)
 
