@@ -10,6 +10,9 @@ from detectron2.config import configurable
 from . import detection_utils as utils
 from . import transforms as T
 
+from PIL import ImageFile
+ImageFile.LOAD_TRUNCATED_IMAGES = True
+
 """
 This file contains the default mapping that's applied to "dataset dicts".
 """
@@ -120,7 +123,10 @@ class DatasetMapper:
         """
         dataset_dict = copy.deepcopy(dataset_dict)  # it will be modified by code below
         # USER: Write your own image loading if it's not from a file
-        image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
+        try:
+            image = utils.read_image(dataset_dict["file_name"], format=self.image_format)
+        except:
+            print("OS error for image")
         utils.check_image_size(dataset_dict, image)
 
         # USER: Remove if you don't do semantic/panoptic segmentation.
