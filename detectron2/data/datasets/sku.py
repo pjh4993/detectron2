@@ -114,7 +114,7 @@ def load_sku_json(csv_file, image_root, dataset_name=None, extra_annotation_keys
 
             obj = {key: anno[key] for key in ann_keys if key in anno}
 
-            obj["bbox_mode"] = BoxMode.XYWH_ABS
+            obj["bbox_mode"] = BoxMode.XYXY_ABS
             objs.append(obj)
         record["annotations"] = objs
         dataset_dicts.append(record)
