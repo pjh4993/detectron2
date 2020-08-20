@@ -18,6 +18,7 @@ from ..box_regression import Box2BoxTransform
 from ..matcher import FCOSMatcher
 from ..postprocessing import detector_postprocess
 from .build import META_ARCH_REGISTRY
+import time
 
 __all__ = ["FCOS"]
 
@@ -156,7 +157,6 @@ class FCOS(nn.Module):
         if self.training:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-
             gt_labels, gt_boxes, gt_centerness = self.label_anchors(anchors, gt_instances)
             losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_centerness)
 

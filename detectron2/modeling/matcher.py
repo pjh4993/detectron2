@@ -1,6 +1,7 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
 from typing import List
 import torch
+import time
 
 from detectron2.layers import nonzero_tuple
 from detectron2.structures import get_densebox_trg
