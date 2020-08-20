@@ -1,4 +1,4 @@
-_BASE_: "../Base-RetinaNet.yaml"
+_BASE_: "../Base-FCOS.yaml"
 MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
@@ -16,4 +16,4 @@ DATASETS:
   TRAIN: ("SKU_train",)
   TEST: ("SKU_val",)
 
-OUTPUT_DIR: "output/retinanet_R_50_FPN_1x/"
+OUTPUT_DIR: "output/FCOS_R_50_FPN_1x/"

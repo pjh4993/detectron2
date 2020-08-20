@@ -21,7 +21,7 @@ class Box2BoxTransform(object):
     """
 
     def __init__(
-        self, weights: Tuple[float, float, float, float], scale_clamp: float = _DEFAULT_SCALE_CLAMP
+        self, weights: Tuple[float, float, float, float], fpn_stride: Tuple[float, float, float, float, float] , scale_clamp: float = _DEFAULT_SCALE_CLAMP, 
     ):
         """
         Args:
@@ -34,6 +34,7 @@ class Box2BoxTransform(object):
         """
         self.weights = weights
         self.scale_clamp = scale_clamp
+        self.fpn_stride = fpn_stride
 
     def get_deltas(self, src_boxes, target_boxes):
         """
@@ -107,6 +108,32 @@ class Box2BoxTransform(object):
         pred_boxes[:, 1::4] = pred_ctr_y - 0.5 * pred_h  # y1
         pred_boxes[:, 2::4] = pred_ctr_x + 0.5 * pred_w  # x2
         pred_boxes[:, 3::4] = pred_ctr_y + 0.5 * pred_h  # y2
+        return pred_boxes
+ 
+    def get_densebox_deltas(self, target_boxes, center, feature_num_per_level):
+        assert isinstance(target_boxes, torch.Tensor), type(target_boxes)
+        assert isinstance(center, torch.Tensor), type(center)
+
+        target_boxes[:,0:2] *= -1
+        deltas = center + target_boxes
+        st = 0
+        for level in range(len(feature_num_per_level)):
+            curr_num = feature_num_per_level[level]
+            curr_num = curr_num[0] * curr_num[1]
+            deltas[st:curr_num,:] /= self.fpn_stride[level]
+            st += curr_num
+        return deltas
+
+    def apply_densebox_deltas(self, deltas, center, feature_num_per_level):
+        st = 0
+        for level in range(len(feature_num_per_level)):
+            curr_num = feature_num_per_level[level]
+            curr_num = curr_num[0] * curr_num[1]
+            deltas[st:curr_num,:] *= self.fpn_stride[level]
+            st += curr_num
+
+        pred_boxes = deltas - center
+        pred_boxes[:, 0:2] *= -1
         return pred_boxes
 
 
