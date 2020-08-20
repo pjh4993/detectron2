@@ -373,3 +373,39 @@ def matched_boxlist_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     inter = wh[:, 0] * wh[:, 1]  # [N]
     iou = inter / (area1 + area2 - inter)  # [N]
     return iou
+
+
+def get_densebox_trg(gt_box: Boxes, anchor: Boxes, curr_limit: List, gt_classes : torch.Tensor) -> torch.Tensor:
+    center_of_anchor = anchor.get_centers()
+    num_anchor = anchor.tensor.shape[0]
+    num_gt = gt_box.tensor.shape[0]
+    center_of_anchor = center_of_anchor.repeat(1,2).repeat_interleave(num_gt,0)
+    gt_box_trg = gt_box.tensor.repeat(num_anchor,1)
+    center_of_anchor[:,2:4] *= -1
+    gt_box_trg[:,0:2] *= -1
+    trg = gt_box_trg + center_of_anchor
+
+    del gt_box_trg
+    del center_of_anchor
+
+    anchor_in_box = trg.min(dim=1)[0] > 0   
+
+    max_size = trg.max(dim=1)[0] 
+    anchor_in_limit = (max_size < curr_limit[1]) * (max_size > curr_limit[0])
+
+    in_condition = anchor_in_box * anchor_in_limit
+    in_condition = in_condition.reshape(num_anchor, num_gt).nonzero()
+
+    trg_box_id = torch.zeros(num_anchor, device=in_condition.device)    
+    trg_cls = torch.ones_like(trg_box_id) * -1
+    trg_centerness = torch.zeros_like(trg_box_id)
+    trg_box_id = trg_box_id.long()
+
+    for i in torch.unique(in_condition[:,0]).tolist():
+        trg_box_id[i] = in_condition[in_condition[:,0] == i,:].max(0)[0][1]
+        trg_cls[i] = gt_classes[trg_box_id[i]]
+        trg_ltrb = trg[i * num_gt + trg_box_id[i]]
+        trg_centerness[i] = torch.sqrt(torch.min(trg_ltrb[0], trg_ltrb[2]) / torch.max(trg_ltrb[0] ,trg_ltrb[2])) \
+            * torch.sqrt(torch.min(trg_ltrb[1], trg_ltrb[3]) / torch.max(trg_ltrb[1] ,trg_ltrb[3]))
+
+    return trg_box_id, trg_cls, trg_centerness

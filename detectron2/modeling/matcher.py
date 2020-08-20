@@ -3,6 +3,7 @@ from typing import List
 import torch
 
 from detectron2.layers import nonzero_tuple
+from detectron2.structures import get_densebox_trg
 
 
 class Matcher(object):
@@ -124,3 +125,68 @@ class Matcher(object):
         # with gt_A, but it has larger overlap with gt_B, it's matched index will still be gt_B.
         # This follows the implementation in Detectron, and is found to have no significant impact.
         match_labels[pred_inds_with_highest_quality] = 1
+
+INF = 100000000
+class FCOSMatcher(object):
+    """
+    This class assigns to each predicted "element" (e.g., a box) a ground-truth
+    element. Each predicted element will have exactly one matches; each
+    ground-truth element may be matched to at least one or more predicted elements.
+
+    The matcher returns (a) a vector of length N containing the index of the
+    ground-truth element m in [0, M) that matches to prediction n in [0, N).
+    (b) a vector of length N containing the labels for each prediction.
+    """
+
+    def __init__(
+        self, scale_per_level
+    ):
+        """
+        Args:
+            scale_per_level : targeted scale per level
+
+            example:
+                [64, 128, 256, 512]
+                will be parsed to 
+                [[0, 64],
+                 [64, 128],
+                 [128, 256],
+                 [256, 512],
+                 [512, INF]]
+        """
+        # Add -inf and +inf to first and last position in thresholds
+        scale_per_level = [0] + scale_per_level + [INF]
+        self.scale_per_level = [[scale_per_level[i], scale_per_level[i+1]] for i in range(len(scale_per_level)-1)]
+
+    def __call__(self, gt_boxes, anchors, gt_classes, feature_num_per_level):
+        """
+        Args:
+            gt_boxes : ground truth boxes for all feature level
+            anchors : anchor from all level
+
+        Returns:
+            matches (Tensor[int64]): a vector of length N, where matches[i] is a matched
+                ground-truth index in [0, M)
+            match_labels (Tensor[int8]): a vector of length N, where pred_labels[i] indicates
+                whether a prediction is a object or background
+        """
+        matches = []
+        match_labels = []
+        centerness = []
+        st = 0
+        for level in range(len(self.scale_per_level)):
+            curr_limit = self.scale_per_level[level]
+            curr_feature_shape = feature_num_per_level[level]
+            curr_num_anchor = curr_feature_shape[0] * curr_feature_shape[1]
+            curr_matches, curr_labels, curr_centerness = get_densebox_trg(gt_boxes, anchors[st:st+curr_num_anchor], curr_limit, gt_classes)
+            st = curr_num_anchor
+
+            matches.append(curr_matches)
+            match_labels.append(curr_labels)
+            centerness.append(curr_centerness)
+
+        matches = torch.cat(matches)
+        match_labels = torch.cat(match_labels)
+        centerness = torch.cat(centerness)
+
+        return matches, match_labels, centerness

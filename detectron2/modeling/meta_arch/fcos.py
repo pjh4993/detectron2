@@ -15,11 +15,11 @@ from detectron2.utils.events import get_event_storage
 from ..anchor_generator import build_anchor_generator
 from ..backbone import build_backbone
 from ..box_regression import Box2BoxTransform
-from ..matcher import Matcher
+from ..matcher import FCOSMatcher
 from ..postprocessing import detector_postprocess
 from .build import META_ARCH_REGISTRY
 
-__all__ = ["RetinaNet"]
+__all__ = ["FCOS"]
 
 
 def permute_to_N_HWA_K(tensor, K):
@@ -35,24 +35,24 @@ def permute_to_N_HWA_K(tensor, K):
 
 
 @META_ARCH_REGISTRY.register()
-class RetinaNet(nn.Module):
+class FCOS(nn.Module):
     """
-    Implement RetinaNet in :paper:`RetinaNet`.
+    Implement FCOS in :paper:`FCOS`.
     """
 
     def __init__(self, cfg):
         super().__init__()
         # fmt: off
-        self.num_classes              = cfg.MODEL.RETINANET.NUM_CLASSES
-        self.in_features              = cfg.MODEL.RETINANET.IN_FEATURES
+        self.num_classes              = cfg.MODEL.FCOS.NUM_CLASSES
+        self.in_features              = cfg.MODEL.FCOS.IN_FEATURES
         # Loss parameters:
-        self.focal_loss_alpha         = cfg.MODEL.RETINANET.FOCAL_LOSS_ALPHA
-        self.focal_loss_gamma         = cfg.MODEL.RETINANET.FOCAL_LOSS_GAMMA
-        self.smooth_l1_loss_beta      = cfg.MODEL.RETINANET.SMOOTH_L1_LOSS_BETA
+        self.focal_loss_alpha         = cfg.MODEL.FCOS.FOCAL_LOSS_ALPHA
+        self.focal_loss_gamma         = cfg.MODEL.FCOS.FOCAL_LOSS_GAMMA
+        self.smooth_l1_loss_beta      = cfg.MODEL.FCOS.SMOOTH_L1_LOSS_BETA
         # Inference parameters:
-        self.score_threshold          = cfg.MODEL.RETINANET.SCORE_THRESH_TEST
-        self.topk_candidates          = cfg.MODEL.RETINANET.TOPK_CANDIDATES_TEST
-        self.nms_threshold            = cfg.MODEL.RETINANET.NMS_THRESH_TEST
+        self.score_threshold          = cfg.MODEL.FCOS.SCORE_THRESH_TEST
+        self.topk_candidates          = cfg.MODEL.FCOS.TOPK_CANDIDATES_TEST
+        self.nms_threshold            = cfg.MODEL.FCOS.NMS_THRESH_TEST
         self.max_detections_per_image = cfg.TEST.DETECTIONS_PER_IMAGE
         # Vis parameters
         self.vis_period               = cfg.VIS_PERIOD
@@ -63,15 +63,13 @@ class RetinaNet(nn.Module):
 
         backbone_shape = self.backbone.output_shape()
         feature_shapes = [backbone_shape[f] for f in self.in_features]
-        self.head = RetinaNetHead(cfg, feature_shapes)
+        self.head = FCOSHead(cfg, feature_shapes)
         self.anchor_generator = build_anchor_generator(cfg, feature_shapes)
 
         # Matching and loss
-        self.box2box_transform = Box2BoxTransform(weights=cfg.MODEL.RPN.BBOX_REG_WEIGHTS)
-        self.anchor_matcher = Matcher(
-            cfg.MODEL.RETINANET.IOU_THRESHOLDS,
-            cfg.MODEL.RETINANET.IOU_LABELS,
-            allow_low_quality_matches=True,
+        self.box2box_transform = Box2BoxTransform(weights=cfg.MODEL.RPN.BBOX_REG_WEIGHTS, fpn_stride=cfg.MODEL.FCOS.FPN_STRIDE)
+        self.anchor_matcher = FCOSMatcher(
+            cfg.MODEL.FCOS.SCALE_PER_LEVEL
         )
 
         self.register_buffer("pixel_mean", torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(-1, 1, 1))
@@ -148,33 +146,31 @@ class RetinaNet(nn.Module):
         features = [features[f] for f in self.in_features]
 
         anchors = self.anchor_generator(features)
-        pred_logits, pred_anchor_deltas = self.head(features)
+        pred_logits, pred_densebox_regress, pred_centerness = self.head(features)
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [permute_to_N_HWA_K(x, self.num_classes) for x in pred_logits]
-        pred_anchor_deltas = [permute_to_N_HWA_K(x, 4) for x in pred_anchor_deltas]
+        pred_densebox_regress = [permute_to_N_HWA_K(x, 4) for x in pred_densebox_regress]
+        pred_centerness = [permute_to_N_HWA_K(x, 1) for x in pred_centerness]
+        self.feature_num_per_level = [[features[i].shape[2] ,features[i].shape[3]] for i in range(len(features))]
 
         if self.training:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-            for gt_inst in gt_instances:
-                sort_idx = torch.sort(gt_inst.gt_boxes.area())[1]
-                gt_inst.gt_boxes = gt_inst.gt_boxes[sort_idx]
-                gt_inst.gt_classes = gt_inst.gt_classes[sort_idx]
 
-            gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
-            losses = self.losses(anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes)
+            gt_labels, gt_boxes, gt_centerness = self.label_anchors(anchors, gt_instances)
+            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_centerness)
 
             if self.vis_period > 0:
                 storage = get_event_storage()
                 if storage.iter % self.vis_period == 0:
                     results = self.inference(
-                        anchors, pred_logits, pred_anchor_deltas, images.image_sizes
+                        anchors, pred_logits, pred_densebox_regress, images.image_sizes
                     )
                     self.visualize_training(batched_inputs, results)
 
             return losses
         else:
-            results = self.inference(anchors, pred_logits, pred_anchor_deltas, images.image_sizes)
+            results = self.inference(anchors, pred_logits, pred_densebox_regress, pred_centerness, images.image_sizes)
             processed_results = []
             for results_per_image, input_per_image, image_size in zip(
                 results, batched_inputs, images.image_sizes
@@ -185,14 +181,14 @@ class RetinaNet(nn.Module):
                 processed_results.append({"instances": r})
             return processed_results
 
-    def losses(self, anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes):
+    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_centerness):
         """
         Args:
             anchors (list[Boxes]): a list of #feature level Boxes
             gt_labels, gt_boxes: see output of :meth:`RetinaNet.label_anchors`.
                 Their shapes are (N, R) and (N, R, 4), respectively, where R is
                 the total number of anchors across levels, i.e. sum(Hi x Wi x Ai)
-            pred_logits, pred_anchor_deltas: both are list[Tensor]. Each element in the
+            pred_logits, pred_densebox_regress: both are list[Tensor]. Each element in the
                 list corresponds to one level and has shape (N, Hi * Wi * Ai, K or 4).
                 Where K is the number of classes used in `pred_logits`.
 
@@ -204,24 +200,26 @@ class RetinaNet(nn.Module):
         """
         num_images = len(gt_labels)
         gt_labels = torch.stack(gt_labels)  # (N, R)
-        anchors = type(anchors[0]).cat(anchors).tensor  # (R, 4)
-        gt_anchor_deltas = [self.box2box_transform.get_deltas(anchors, k) for k in gt_boxes]
+        anchors = type(anchors[0]).cat(anchors).get_centers().repeat(1,2)  # (R, 4)
+        anchors[:,2:4] *= -1
+        gt_anchor_deltas = [self.box2box_transform.get_densebox_deltas(k.tensor, anchors, self.feature_num_per_level) for k in gt_boxes]
         gt_anchor_deltas = torch.stack(gt_anchor_deltas)  # (N, R, 4)
 
-        valid_mask = gt_labels >= 0
-        pos_mask = (gt_labels >= 0) & (gt_labels != self.num_classes)
-        num_pos_anchors = pos_mask.sum().item()
+        gt_centerness = torch.stack(gt_centerness)
+
+        fore_ground_mask = gt_labels >= 0
+        num_pos_anchors = fore_ground_mask.sum().item()
         get_event_storage().put_scalar("num_pos_anchors", num_pos_anchors / num_images)
         self.loss_normalizer = self.loss_normalizer_momentum * self.loss_normalizer + (
             1 - self.loss_normalizer_momentum
         ) * max(num_pos_anchors, 1)
 
         # classification and regression loss
-        gt_labels_target = F.one_hot(gt_labels[valid_mask], num_classes=self.num_classes + 1)[
-            :, :-1
+        gt_labels_target = F.one_hot(gt_labels[fore_ground_mask], num_classes=self.num_classes)[
+            :, :
         ]  # no loss for the last (background) class
         loss_cls = sigmoid_focal_loss_jit(
-            cat(pred_logits, dim=1)[valid_mask],
+            cat(pred_logits, dim=1)[fore_ground_mask],
             gt_labels_target.to(pred_logits[0].dtype),
             alpha=self.focal_loss_alpha,
             gamma=self.focal_loss_gamma,
@@ -229,14 +227,21 @@ class RetinaNet(nn.Module):
         )
 
         loss_box_reg = smooth_l1_loss(
-            cat(pred_anchor_deltas, dim=1)[pos_mask],
-            gt_anchor_deltas[pos_mask],
+            cat(pred_densebox_regress, dim=1)[fore_ground_mask],
+            gt_anchor_deltas[fore_ground_mask],
             beta=self.smooth_l1_loss_beta,
             reduction="sum",
         )
+
+        loss_centerness = nn.BCELoss(reduction="sum")(
+            torch.sigmoid(cat(pred_centerness, dim=1)[fore_ground_mask]),
+            gt_centerness[fore_ground_mask].unsqueeze(-1)
+        )
+
         return {
-            "loss_cls": loss_cls / self.loss_normalizer,
-            "loss_box_reg": loss_box_reg / self.loss_normalizer,
+            "loss_cls": loss_cls / num_pos_anchors,
+            "loss_box_reg": loss_box_reg / num_pos_anchors,
+            "loss_centerness" : loss_centerness / num_pos_anchors
         }
 
     @torch.no_grad()
@@ -263,34 +268,36 @@ class RetinaNet(nn.Module):
 
         gt_labels = []
         matched_gt_boxes = []
+        gt_centerness = []
+
+        """
+        sort gt_instances with area
+        smaller gt_instance will have more priority than bigger one
+        """
+
+        sorted_idx = [torch.sort(gt_inst.gt_boxes.area())[1] for gt_inst in gt_instances]
+
         for gt_per_image in gt_instances:
-            match_quality_matrix = pairwise_iou(gt_per_image.gt_boxes, anchors)
-            matched_idxs, anchor_labels = self.anchor_matcher(match_quality_matrix)
-            del match_quality_matrix
+            matched_idxs, anchor_labels, gt_centerness_i = self.anchor_matcher(gt_per_image.gt_boxes, anchors, gt_per_image.gt_classes, self.feature_num_per_level)
+            matched_gt_boxes_i = gt_per_image.gt_boxes[matched_idxs]
+            gt_labels_i = gt_per_image.gt_classes[matched_idxs]
 
-            if len(gt_per_image) > 0:
-                matched_gt_boxes_i = gt_per_image.gt_boxes.tensor[matched_idxs]
-
-                gt_labels_i = gt_per_image.gt_classes[matched_idxs]
-                # Anchors with label 0 are treated as background.
-                gt_labels_i[anchor_labels == 0] = self.num_classes
-                # Anchors with label -1 are ignored.
-                gt_labels_i[anchor_labels == -1] = -1
-            else:
-                matched_gt_boxes_i = torch.zeros_like(anchors.tensor)
-                gt_labels_i = torch.zeros_like(matched_idxs) + self.num_classes
-
+            gt_labels_i[anchor_labels == -1] = -1
+            #gt_centerness_i[anchor_labels == -1] = -1
+            #matched_gt_boxes_i.repeat(1,2)
+            
             gt_labels.append(gt_labels_i)
             matched_gt_boxes.append(matched_gt_boxes_i)
+            gt_centerness.append(gt_centerness_i)
+        
+        return gt_labels, matched_gt_boxes, gt_centerness
 
-        return gt_labels, matched_gt_boxes
-
-    def inference(self, anchors, pred_logits, pred_anchor_deltas, image_sizes):
+    def inference(self, anchors, pred_logits, pred_densebox_regress, pred_centerness, image_sizes):
         """
         Arguments:
             anchors (list[Boxes]): A list of #feature level Boxes.
                 The Boxes contain anchors of this image on the specific feature level.
-            pred_logits, pred_anchor_deltas: list[Tensor], one per level. Each
+            pred_logits, pred_densebox_regress: list[Tensor], one per level. Each
                 has shape (N, Hi * Wi * Ai, K or 4)
             image_sizes (List[torch.Size]): the input image sizes
 
@@ -300,7 +307,9 @@ class RetinaNet(nn.Module):
         results = []
         for img_idx, image_size in enumerate(image_sizes):
             pred_logits_per_image = [x[img_idx] for x in pred_logits]
-            deltas_per_image = [x[img_idx] for x in pred_anchor_deltas]
+            deltas_per_image = [x[img_idx] for x in pred_densebox_regress]
+            pred_centerness_per_image = [x[img_idx] for x in pred_centerness]
+            pred_logits_per_image *= pred_centerness_per_image
             results_per_image = self.inference_single_image(
                 anchors, pred_logits_per_image, deltas_per_image, tuple(image_size)
             )
@@ -350,7 +359,7 @@ class RetinaNet(nn.Module):
             box_reg_i = box_reg_i[anchor_idxs]
             anchors_i = anchors_i[anchor_idxs]
             # predict boxes
-            predicted_boxes = self.box2box_transform.apply_deltas(box_reg_i, anchors_i.tensor)
+            predicted_boxes = self.box2box_transform.apply_deltas(box_reg_i, anchors_i.get_centers().repeat(1,2))
 
             boxes_all.append(predicted_boxes)
             scores_all.append(predicted_prob)
@@ -378,7 +387,7 @@ class RetinaNet(nn.Module):
         return images
 
 
-class RetinaNetHead(nn.Module):
+class FCOSHead(nn.Module):
     """
     The head used in RetinaNet for object classification and box regression.
     It has two subnets for the two tasks, with a common structure but separate parameters.
@@ -388,15 +397,16 @@ class RetinaNetHead(nn.Module):
         super().__init__()
         # fmt: off
         in_channels      = input_shape[0].channels
-        num_classes      = cfg.MODEL.RETINANET.NUM_CLASSES
-        num_convs        = cfg.MODEL.RETINANET.NUM_CONVS
-        prior_prob       = cfg.MODEL.RETINANET.PRIOR_PROB
+        num_classes      = cfg.MODEL.FCOS.NUM_CLASSES
+        num_convs        = cfg.MODEL.FCOS.NUM_CONVS
+        prior_prob       = cfg.MODEL.FCOS.PRIOR_PROB
         num_anchors      = build_anchor_generator(cfg, input_shape).num_cell_anchors
         # fmt: on
         assert (
             len(set(num_anchors)) == 1
         ), "Using different number of anchors between levels is not currently supported!"
         num_anchors = num_anchors[0]
+        self.centerness_on_cls = cfg.MODEL.FCOS.CENTERNESS_ON_CLS
 
         cls_subnet = []
         bbox_subnet = []
@@ -416,9 +426,10 @@ class RetinaNetHead(nn.Module):
             in_channels, num_anchors * num_classes, kernel_size=3, stride=1, padding=1
         )
         self.bbox_pred = nn.Conv2d(in_channels, num_anchors * 4, kernel_size=3, stride=1, padding=1)
+        self.centerness_pred = nn.Conv2d(in_channels, 1, kernel_size=3, stride=1, padding=1)
 
         # Initialization
-        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred]:
+        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred]:
             for layer in modules.modules():
                 if isinstance(layer, nn.Conv2d):
                     torch.nn.init.normal_(layer.weight, mean=0, std=0.01)
@@ -443,10 +454,16 @@ class RetinaNetHead(nn.Module):
                 The tensor predicts 4-vector (dx,dy,dw,dh) box
                 regression values for every anchor. These values are the
                 relative offset between the anchor and the ground truth box.
+            centerness (list[Tensor]) : #lvl tensors, each has shape (N, Ax1, Hi, Wi)
         """
         logits = []
         bbox_reg = []
+        centerness = []
         for feature in features:
             logits.append(self.cls_score(self.cls_subnet(feature)))
             bbox_reg.append(self.bbox_pred(self.bbox_subnet(feature)))
-        return logits, bbox_reg
+            if self.centerness_on_cls:
+                centerness.append(self.centerness_pred(self.cls_subnet(feature)))
+            else:
+                centerness.append(self.centerness_pred(self.bbox_subnet(feature)))
+        return logits, bbox_reg, centerness
