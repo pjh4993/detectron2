@@ -120,7 +120,7 @@ class Box2BoxTransform(object):
         for level in range(len(feature_num_per_level)):
             curr_num = feature_num_per_level[level]
             curr_num = curr_num[0] * curr_num[1]
-            deltas[st:curr_num,:] /= self.fpn_stride[level]
+            deltas[st:st+curr_num,:] /= self.fpn_stride[level]
             st += curr_num
         return deltas
 
@@ -129,7 +129,7 @@ class Box2BoxTransform(object):
         for level in range(len(feature_num_per_level)):
             curr_num = feature_num_per_level[level]
             curr_num = curr_num[0] * curr_num[1]
-            deltas[st:curr_num,:] *= self.fpn_stride[level]
+            deltas[st:st+curr_num,:] *= self.fpn_stride[level]
             st += curr_num
 
         pred_boxes = deltas - center

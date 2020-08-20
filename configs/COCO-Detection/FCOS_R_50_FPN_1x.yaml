@@ -3,7 +3,7 @@ MODEL:
   WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
     DEPTH: 50
-  FCOS:
+  RETINANET:
     NUM_CLASSES : 1
   ANCHOR_GENERATOR:
     NAME : "DenseBoxAnchorGenerator"
@@ -11,9 +11,5 @@ MODEL:
 # This is similar to the setting used in Mask R-CNN paper, Appendix A
 # But there are some differences, e.g., we did not initialize the output
 # layer using the corresponding classes from COCO
-
-DATASETS:
-  TRAIN: ("SKU_train",)
-  TEST: ("SKU_val",)
 
 OUTPUT_DIR: "output/FCOS_R_50_FPN_1x/"

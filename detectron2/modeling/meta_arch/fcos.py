@@ -7,8 +7,9 @@ from fvcore.nn import sigmoid_focal_loss_jit, smooth_l1_loss
 from torch import nn
 from torch.nn import functional as F
 
+
 from detectron2.data.detection_utils import convert_image_to_rgb
-from detectron2.layers import ShapeSpec, batched_nms, cat
+from detectron2.layers import ShapeSpec, batched_nms, cat, IOULoss
 from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
 from detectron2.utils.events import get_event_storage
 
@@ -164,7 +165,7 @@ class FCOS(nn.Module):
                 storage = get_event_storage()
                 if storage.iter % self.vis_period == 0:
                     results = self.inference(
-                        anchors, pred_logits, pred_densebox_regress, images.image_sizes
+                        anchors, pred_logits, pred_densebox_regress, pred_centerness ,images.image_sizes
                     )
                     self.visualize_training(batched_inputs, results)
 
@@ -214,29 +215,44 @@ class FCOS(nn.Module):
             1 - self.loss_normalizer_momentum
         ) * max(num_pos_anchors, 1)
 
+        assert((gt_labels[fore_ground_mask] < 0 ).sum() == 0)
+        assert((gt_centerness[fore_ground_mask] < 0 ).sum() == 0)
+        assert((cat(pred_densebox_regress,dim=1)[fore_ground_mask] < 0).sum() == 0)
+        assert((torch.sigmoid(cat(pred_centerness,dim=1))[fore_ground_mask] < 0).sum() == 0)
+
+
         # classification and regression loss
-        gt_labels_target = F.one_hot(gt_labels[fore_ground_mask], num_classes=self.num_classes)[
+        gt_labels_target = gt_labels + 1
+        """
+        gt_labels_target = F.one_hot(gt_labels, num_classes=self.num_classes+1)[
             :, :
         ]  # no loss for the last (background) class
+        """
         loss_cls = sigmoid_focal_loss_jit(
-            cat(pred_logits, dim=1)[fore_ground_mask],
-            gt_labels_target.to(pred_logits[0].dtype),
+            cat(pred_logits, dim=1),
+            gt_labels_target.to(pred_logits[0].dtype).unsqueeze(-1),
             alpha=self.focal_loss_alpha,
             gamma=self.focal_loss_gamma,
             reduction="sum",
         )
 
-        loss_box_reg = smooth_l1_loss(
+        loss_box_reg = IOULoss(loss_type="giou")(
             cat(pred_densebox_regress, dim=1)[fore_ground_mask],
             gt_anchor_deltas[fore_ground_mask],
-            beta=self.smooth_l1_loss_beta,
-            reduction="sum",
+            #beta=self.smooth_l1_loss_beta,
+            #reduction="sum",
         )
 
         loss_centerness = nn.BCELoss(reduction="sum")(
             torch.sigmoid(cat(pred_centerness, dim=1)[fore_ground_mask]),
             gt_centerness[fore_ground_mask].unsqueeze(-1)
         )
+
+        num_pos_anchors += 1
+
+        if loss_box_reg.isnan():
+            print("error")
+            
 
         return {
             "loss_cls": loss_cls / num_pos_anchors,
@@ -270,13 +286,6 @@ class FCOS(nn.Module):
         matched_gt_boxes = []
         gt_centerness = []
 
-        """
-        sort gt_instances with area
-        smaller gt_instance will have more priority than bigger one
-        """
-
-        sorted_idx = [torch.sort(gt_inst.gt_boxes.area())[1] for gt_inst in gt_instances]
-
         for gt_per_image in gt_instances:
             matched_idxs, anchor_labels, gt_centerness_i = self.anchor_matcher(gt_per_image.gt_boxes, anchors, gt_per_image.gt_classes, self.feature_num_per_level)
             matched_gt_boxes_i = gt_per_image.gt_boxes[matched_idxs]
@@ -309,7 +318,8 @@ class FCOS(nn.Module):
             pred_logits_per_image = [x[img_idx] for x in pred_logits]
             deltas_per_image = [x[img_idx] for x in pred_densebox_regress]
             pred_centerness_per_image = [x[img_idx] for x in pred_centerness]
-            pred_logits_per_image *= pred_centerness_per_image
+            for i in range(len(pred_logits_per_image)):
+                pred_logits_per_image[i] *= pred_centerness_per_image[i]
             results_per_image = self.inference_single_image(
                 anchors, pred_logits_per_image, deltas_per_image, tuple(image_size)
             )
@@ -359,7 +369,7 @@ class FCOS(nn.Module):
             box_reg_i = box_reg_i[anchor_idxs]
             anchors_i = anchors_i[anchor_idxs]
             # predict boxes
-            predicted_boxes = self.box2box_transform.apply_deltas(box_reg_i, anchors_i.get_centers().repeat(1,2))
+            predicted_boxes = self.box2box_transform.apply_densebox_deltas(box_reg_i, anchors_i.get_centers().repeat(1,2), self.feature_num_per_level)
 
             boxes_all.append(predicted_boxes)
             scores_all.append(predicted_prob)
@@ -461,7 +471,7 @@ class FCOSHead(nn.Module):
         centerness = []
         for feature in features:
             logits.append(self.cls_score(self.cls_subnet(feature)))
-            bbox_reg.append(self.bbox_pred(self.bbox_subnet(feature)))
+            bbox_reg.append(F.relu(self.bbox_pred(self.bbox_subnet(feature))))
             if self.centerness_on_cls:
                 centerness.append(self.centerness_pred(self.cls_subnet(feature)))
             else:

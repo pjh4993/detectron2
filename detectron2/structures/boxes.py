@@ -390,8 +390,10 @@ def get_densebox_trg(gt_box: Boxes, anchor: Boxes, curr_limit: List, gt_classes 
     gt_box_trg[:,0:2] *= -1
     trg = gt_box_trg + center_of_anchor
 
+    """
     del gt_box_trg
     del center_of_anchor
+    """
 
     anchor_in_box = trg.min(dim=1)[0] > 0   
 
@@ -405,6 +407,7 @@ def get_densebox_trg(gt_box: Boxes, anchor: Boxes, curr_limit: List, gt_classes 
 
     trg_cls = gt_classes[torch.arange(gt_classes.shape[0]), trg_box_id]
     trg_cls[gt_min_area == INF] = -1
+
     trg_centerness = torch.sqrt(torch.abs(torch.min(trg[:,0], trg[:,2]) / (exp + torch.max(trg[:,0], trg[:,2]))) *
         torch.abs(torch.min(trg[:,1], trg[:,3]) / (exp + torch.max(trg[:,1], trg[:,3]))))
     trg_centerness = trg_centerness.reshape(num_anchor, num_gt)
