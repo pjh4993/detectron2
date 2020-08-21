@@ -398,7 +398,7 @@ def get_densebox_trg(gt_box: Boxes, anchor: Boxes, curr_limit: List, gt_classes 
     anchor_in_box = trg.min(dim=1)[0] > 0   
 
     max_size = trg.max(dim=1)[0] 
-    anchor_in_limit = (max_size < curr_limit[1]) * (max_size > curr_limit[0])
+    anchor_in_limit = (max_size < curr_limit[1]) * (max_size >= curr_limit[0])
 
     in_condition = anchor_in_box * anchor_in_limit
     in_condition = in_condition.reshape(num_anchor, num_gt)
@@ -406,12 +406,13 @@ def get_densebox_trg(gt_box: Boxes, anchor: Boxes, curr_limit: List, gt_classes 
     gt_min_area, trg_box_id = gt_area.min(dim=1)
 
     trg_cls = gt_classes[torch.arange(gt_classes.shape[0]), trg_box_id]
-    trg_cls[gt_min_area == INF] = -1
 
     trg_centerness = torch.sqrt(torch.abs(torch.min(trg[:,0], trg[:,2]) / (exp + torch.max(trg[:,0], trg[:,2]))) *
         torch.abs(torch.min(trg[:,1], trg[:,3]) / (exp + torch.max(trg[:,1], trg[:,3]))))
     trg_centerness = trg_centerness.reshape(num_anchor, num_gt)
     trg_centerness = trg_centerness[torch.arange(gt_classes.shape[0]), trg_box_id]
-    trg_centerness[gt_min_area == INF] = -1
+
+    gt_box_trg = gt_box_trg.reshape(num_anchor, -1, 4)
+    deltas = gt_box_trg[torch.arange(num_anchor),trg_box_id] + center_of_anchor[:num_anchor]
 
     return trg_box_id, trg_cls, trg_centerness

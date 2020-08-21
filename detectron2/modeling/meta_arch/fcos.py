@@ -208,7 +208,7 @@ class FCOS(nn.Module):
 
         gt_centerness = torch.stack(gt_centerness)
 
-        fore_ground_mask = gt_labels >= 0
+        fore_ground_mask = gt_anchor_deltas.min(dim=2)[0] > 0
         num_pos_anchors = fore_ground_mask.sum().item()
         get_event_storage().put_scalar("num_pos_anchors", num_pos_anchors / num_images)
         self.loss_normalizer = self.loss_normalizer_momentum * self.loss_normalizer + (
@@ -217,12 +217,14 @@ class FCOS(nn.Module):
 
         assert((gt_labels[fore_ground_mask] < 0 ).sum() == 0)
         assert((gt_centerness[fore_ground_mask] < 0 ).sum() == 0)
+        assert((gt_anchor_deltas[fore_ground_mask] < 0).sum() == 0)
         assert((cat(pred_densebox_regress,dim=1)[fore_ground_mask] < 0).sum() == 0)
         assert((torch.sigmoid(cat(pred_centerness,dim=1))[fore_ground_mask] < 0).sum() == 0)
 
 
         # classification and regression loss
-        gt_labels_target = gt_labels + 1
+        gt_labels[~fore_ground_mask] = -1
+        gt_labels += 1
         """
         gt_labels_target = F.one_hot(gt_labels, num_classes=self.num_classes+1)[
             :, :
@@ -230,7 +232,7 @@ class FCOS(nn.Module):
         """
         loss_cls = sigmoid_focal_loss_jit(
             cat(pred_logits, dim=1),
-            gt_labels_target.to(pred_logits[0].dtype).unsqueeze(-1),
+            gt_labels.to(pred_logits[0].dtype).unsqueeze(-1),
             alpha=self.focal_loss_alpha,
             gamma=self.focal_loss_gamma,
             reduction="sum",
@@ -287,14 +289,13 @@ class FCOS(nn.Module):
         gt_centerness = []
 
         for gt_per_image in gt_instances:
-            matched_idxs, anchor_labels, gt_centerness_i = self.anchor_matcher(gt_per_image.gt_boxes, anchors, gt_per_image.gt_classes, self.feature_num_per_level)
+            matched_idxs, gt_labels_i, gt_centerness_i = self.anchor_matcher(gt_per_image.gt_boxes, anchors, gt_per_image.gt_classes, self.feature_num_per_level)
             matched_gt_boxes_i = gt_per_image.gt_boxes[matched_idxs]
-            gt_labels_i = gt_per_image.gt_classes[matched_idxs]
 
-            gt_labels_i[anchor_labels == -1] = -1
             #gt_centerness_i[anchor_labels == -1] = -1
             #matched_gt_boxes_i.repeat(1,2)
             
+            assert((matched_gt_boxes_i.tensor < 0 ).sum() == 0)
             gt_labels.append(gt_labels_i)
             matched_gt_boxes.append(matched_gt_boxes_i)
             gt_centerness.append(gt_centerness_i)
