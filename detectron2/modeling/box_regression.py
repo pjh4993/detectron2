@@ -132,8 +132,8 @@ class Box2BoxTransform(object):
             deltas[st:st+curr_num,:] *= self.fpn_stride[level]
             st += curr_num
 
-        pred_boxes = deltas - center
-        pred_boxes[:, 0:2] *= -1
+        deltas[:,0:2] *= -1
+        pred_boxes = deltas + center
         return pred_boxes
 
 

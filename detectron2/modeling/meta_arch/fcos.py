@@ -215,7 +215,6 @@ class FCOS(nn.Module):
             1 - self.loss_normalizer_momentum
         ) * max(num_pos_anchors, 1)
 
-        assert((gt_labels[fore_ground_mask] < 0 ).sum() == 0)
         assert((gt_centerness[fore_ground_mask] < 0 ).sum() == 0)
         assert((gt_anchor_deltas[fore_ground_mask] < 0).sum() == 0)
         assert((cat(pred_densebox_regress,dim=1)[fore_ground_mask] < 0).sum() == 0)
@@ -225,6 +224,7 @@ class FCOS(nn.Module):
         # classification and regression loss
         gt_labels[~fore_ground_mask] = -1
         gt_labels += 1
+        assert((gt_labels < 0 ).sum() == 0)
         """
         gt_labels_target = F.one_hot(gt_labels, num_classes=self.num_classes+1)[
             :, :
@@ -252,7 +252,11 @@ class FCOS(nn.Module):
 
         num_pos_anchors += 1
 
-        if loss_box_reg.isnan():
+        if loss_cls.isnan() or loss_cls.isinf():
+            print("error")
+        if loss_box_reg.isnan() or loss_box_reg.isinf():
+            print("error")
+        if loss_centerness.isnan() or loss_centerness.isinf():
             print("error")
             
 
@@ -319,15 +323,13 @@ class FCOS(nn.Module):
             pred_logits_per_image = [x[img_idx] for x in pred_logits]
             deltas_per_image = [x[img_idx] for x in pred_densebox_regress]
             pred_centerness_per_image = [x[img_idx] for x in pred_centerness]
-            for i in range(len(pred_logits_per_image)):
-                pred_logits_per_image[i] *= pred_centerness_per_image[i]
             results_per_image = self.inference_single_image(
-                anchors, pred_logits_per_image, deltas_per_image, tuple(image_size)
+                anchors, pred_logits_per_image, deltas_per_image, pred_centerness_per_image ,tuple(image_size)
             )
             results.append(results_per_image)
         return results
 
-    def inference_single_image(self, anchors, box_cls, box_delta, image_size):
+    def inference_single_image(self, anchors, box_cls, box_delta, centerness ,image_size):
         """
         Single-image inference. Return bounding-box detection results by thresholding
         on scores and applying non-maximum suppression (NMS).
@@ -348,9 +350,11 @@ class FCOS(nn.Module):
         class_idxs_all = []
 
         # Iterate over every feature level
-        for box_cls_i, box_reg_i, anchors_i in zip(box_cls, box_delta, anchors):
+        for box_cls_i, box_reg_i, anchors_i, centerness_i in zip(box_cls, box_delta, anchors, centerness):
             # (HxWxAxK,)
             box_cls_i = box_cls_i.flatten().sigmoid_()
+            centerness_i = centerness_i.flatten().sigmoid_()
+            box_cls_i *= centerness_i
 
             # Keep top k top scoring indices only.
             num_topk = min(self.topk_candidates, box_reg_i.size(0))
