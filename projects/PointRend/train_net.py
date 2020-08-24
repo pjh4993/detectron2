@@ -20,7 +20,6 @@ from detectron2.evaluation import (
     CityscapesInstanceEvaluator,
     CityscapesSemSegEvaluator,
     COCOEvaluator,
-    SKUEvaluator,
     DatasetEvaluators,
     LVISEvaluator,
     SemSegEvaluator,
@@ -92,9 +91,7 @@ class Trainer(DefaultTrainer):
                 torch.cuda.device_count() >= comm.get_rank()
             ), "CityscapesEvaluator currently do not work with multiple machines."
             return CityscapesSemSegEvaluator(dataset_name)
-        if evaluator_type == "SKU":
-            return SKUEvaluator(dataset_name, cfg, True, output_folder)
-        if len(evaluator_list) == 0:
+         if len(evaluator_list) == 0:
             raise NotImplementedError(
                 "no Evaluator for the dataset {} with the type {}".format(
                     dataset_name, evaluator_type
