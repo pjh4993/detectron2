@@ -326,7 +326,7 @@ def instances_to_sku_json(instances, img_id):
         return []
 
     boxes = instances.pred_boxes.tensor.numpy()
-    #boxes = BoxMode.convert(boxes, BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
+    boxes = BoxMode.convert(boxes, BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
     boxes = boxes.tolist()
     scores = instances.scores.tolist()
     classes = instances.pred_classes.tolist()
@@ -418,7 +418,8 @@ def _evaluate_box_proposals(dataset_predictions, sku_api, thresholds=None, area=
         ann_ids = sku_api.getAnnIds(imgIds=prediction_dict["image_id"])
         anno = sku_api.loadAnns(ann_ids)
         gt_boxes = [
-            BoxMode.convert(obj["bbox"], BoxMode.XYWH_ABS, BoxMode.XYXY_ABS)
+            #BoxMode.convert(obj["bbox"], BoxMode.XYWH_ABS, BoxMode.XYXY_ABS)
+            obj["bbox"]
             for obj in anno
             if obj["iscrowd"] == 0
         ]
@@ -494,6 +495,7 @@ def _evaluate_predictions_on_sku(
     assert len(sku_results) > 0
 
     sku_dt = sku_gt.loadRes(sku_results)
+    sku_gt.eval()
     sku_eval = (SKUeval_opt if use_fast_impl else SKUeval)(sku_gt, sku_dt, iou_type)
 
     sku_eval.evaluate()

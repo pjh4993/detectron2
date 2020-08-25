@@ -55,21 +55,19 @@ class SKU:
     
                 self.imgToAnns[img_id].append({
                     'bbox' : bbox,
-                    'bbox_mode' : self.box_mode,
                     'image_id' : img_id,
                     'id' : ann_id,
                     'category_id' : 0,
-                    'area' : (bbox[2] - bbox[0] * bbox[3] - bbox[1]),
+                    'area' : (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]),
                     'iscrowd' : 0
                 })
 
                 self.anns[ann_id] = {
                     'bbox' : bbox,
-                    'bbox_mode' : self.box_mode,
                     'image_id' : img_id,
                     'id' : ann_id,
                     'category_id' : 0,
-                    'area' : (bbox[2] - bbox[0] * bbox[3] - bbox[1]),
+                    'area' : (bbox[2] - bbox[0]) * (bbox[3] - bbox[1]),
                     'iscrowd' : 0
                 }
 
@@ -128,6 +126,18 @@ class SKU:
 
         #self.ann_keys = ["bbox", "category_id"]
 
+    def eval(self):
+        """
+        change bbox mode to XYHW_ABS for evaluation
+        """
+        if self.box_mode == BoxMode.XYXY_ABS:
+            for k in self.anns.keys():
+                self.anns[k]['bbox'] = BoxMode.convert(self.anns[k]['bbox'], BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
+                bbox = self.anns[k]['bbox']
+                #self.anns['area'] = bbox[2] * bbox[3]
+            self.box_mode = BoxMode.XYWH_ABS
+            self.createIndex()
+            
     def createIndex(self):
         # create index
         print('creating index...')
@@ -261,6 +271,7 @@ class SKU:
         """
         res = SKU()
         res.dataset['images'] = [img for img in self.dataset['images']]
+        res.box_mode = BoxMode.XYWH_ABS
 
         print('Loading and preparing results...')
         tic = time.time()
