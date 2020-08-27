@@ -20,7 +20,7 @@ from detectron2.evaluation import (
     CityscapesInstanceEvaluator,
     CityscapesSemSegEvaluator,
     COCOEvaluator,
-    SKUEvaluator,
+    #SKUEvaluator,
     DatasetEvaluators,
     LVISEvaluator,
     SemSegEvaluator,

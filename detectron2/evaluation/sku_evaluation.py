@@ -491,7 +491,7 @@ def _evaluate_predictions_on_sku(
     Evaluate the sku results using SKUEval API.
     """
     assert len(sku_results) > 0
-
+ 
     sku_dt = sku_gt.loadRes(sku_results)
     sku_eval = (SKUeval_opt if use_fast_impl else SKUeval)(sku_gt, sku_dt, iou_type)
 
