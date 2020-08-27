@@ -9,16 +9,17 @@ import numpy as np
 import os
 import pickle
 from collections import OrderedDict
-import pyskutools.mask as mask_util
 import torch
 from fvcore.common.file_io import PathManager
-from detectron2.data.datasets.pyskutools import SKU, SKUeval
+from detectron2.data.datasets.pyskutools import SKU
+
+from pycocotools.cocoeval import COCOeval as SKUeval
+from detectron2.evaluation.fast_eval_api import COCOeval_opt as SKUeval_opt
 from tabulate import tabulate
 
 import detectron2.utils.comm as comm
 from detectron2.data import MetadataCatalog
 from detectron2.data.datasets.sku import convert_to_sku_json
-from detectron2.evaluation.fast_eval_api import SKUeval_opt
 from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
 
@@ -36,7 +37,7 @@ class SKUEvaluator(DatasetEvaluator):
     instance segmentation, or keypoint detection dataset.
     """
 
-    def __init__(self, dataset_name, cfg, distributed, output_dir=None, *, use_fast_impl=False):
+    def __init__(self, dataset_name, cfg, distributed, output_dir=None, *, use_fast_impl=True):
         """
         Args:
             dataset_name (str): name of the dataset to be evaluated.
@@ -417,7 +418,8 @@ def _evaluate_box_proposals(dataset_predictions, sku_api, thresholds=None, area=
         ann_ids = sku_api.getAnnIds(imgIds=prediction_dict["image_id"])
         anno = sku_api.loadAnns(ann_ids)
         gt_boxes = [
-            BoxMode.convert(obj["bbox"], BoxMode.XYWH_ABS, BoxMode.XYXY_ABS)
+            #BoxMode.convert(obj["bbox"], BoxMode.XYWH_ABS, BoxMode.XYXY_ABS)
+            obj["bbox"]
             for obj in anno
             if obj["iscrowd"] == 0
         ]
@@ -485,7 +487,7 @@ def _evaluate_box_proposals(dataset_predictions, sku_api, thresholds=None, area=
 
 
 def _evaluate_predictions_on_sku(
-    sku_gt, sku_results, iou_type, kpt_oks_sigmas=None, use_fast_impl=False
+    sku_gt, sku_results, iou_type, kpt_oks_sigmas=None, use_fast_impl=True
 ):
     """
     Evaluate the sku results using SKUEval API.
@@ -493,6 +495,7 @@ def _evaluate_predictions_on_sku(
     assert len(sku_results) > 0
  
     sku_dt = sku_gt.loadRes(sku_results)
+    sku_gt.eval()
     sku_eval = (SKUeval_opt if use_fast_impl else SKUeval)(sku_gt, sku_dt, iou_type)
 
     sku_eval.evaluate()

@@ -33,6 +33,7 @@ from detectron2.evaluation import (
     COCOPanopticEvaluator,
     DatasetEvaluators,
     LVISEvaluator,
+    SKUEvaluator,
     PascalVOCDetectionEvaluator,
     SemSegEvaluator,
     verify_results,
@@ -88,6 +89,8 @@ class Trainer(DefaultTrainer):
             return PascalVOCDetectionEvaluator(dataset_name)
         elif evaluator_type == "lvis":
             return LVISEvaluator(dataset_name, cfg, True, output_folder)
+        elif evaluator_type == "SKU":
+            return SKUEvaluator(dataset_name, cfg, True, output_folder)
         if len(evaluator_list) == 0:
             raise NotImplementedError(
                 "no Evaluator for the dataset {} with the type {}".format(
