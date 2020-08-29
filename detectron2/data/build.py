@@ -8,7 +8,7 @@ import torch.utils.data
 from fvcore.common.file_io import PathManager
 from tabulate import tabulate
 from termcolor import colored
-
+ 
 from detectron2.structures import BoxMode
 from detectron2.utils.comm import get_world_size
 from detectron2.utils.env import seed_all_rng
@@ -19,6 +19,7 @@ from .common import AspectRatioGroupedDataset, DatasetFromList, MapDataset
 from .dataset_mapper import DatasetMapper
 from .detection_utils import check_metadata_consistency
 from .samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler
+import json
 
 """
 This file contains the default logic to build a dataloader for training or testing.
@@ -161,11 +162,19 @@ def print_instances_class_histogram(dataset_dicts, class_names):
     """
     num_classes = len(class_names)
     hist_bins = np.arange(num_classes + 1)
-    histogram = np.zeros((num_classes,), dtype=np.int)
+    histogram = np.zeros((num_classes,4), dtype=np.int)
+
+    areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 32 ** 2], [32 ** 2, 96 ** 2], [96 ** 2, 1e5 ** 2]]
+
     for entry in dataset_dicts:
         annos = entry["annotations"]
         classes = [x["category_id"] for x in annos if not x.get("iscrowd", 0)]
-        histogram += np.histogram(classes, bins=hist_bins)[0]
+        area = [x["bbox"][2] * x["bbox"][3] for x in annos if not x.get("iscrowd",0)]
+        for i in range(len(areaRng)):
+            area_limit = areaRng[i]
+            curr_area = [(area_limit[0] < ar and area_limit[1] > ar) for ar in area]
+            histogram[:,i] += np.histogram(np.array(classes)[curr_area], bins=hist_bins)[0]
+        #histogram += np.histogram(classes, bins=hist_bins)[0]
 
     N_COLS = min(6, len(class_names) * 2)
 
@@ -176,8 +185,16 @@ def print_instances_class_histogram(dataset_dicts, class_names):
         return x
 
     data = list(
-        itertools.chain(*[[short_name(class_names[i]), int(v)] for i, v in enumerate(histogram)])
+        itertools.chain(*[[short_name(class_names[i]), v] for i, v in enumerate(histogram)])
     )
+
+    data_dict = {}
+    for i in range(len(data)//2):
+        data_dict[data[2*i]] = data[2*i+1].tolist()
+
+    with open('data_dict.json','w') as fp:
+        json.dump(data_dict, fp)
+
     total_num_instances = sum(data[1::2])
     data.extend([None] * (N_COLS - (len(data) % N_COLS)))
     if num_classes > 1:

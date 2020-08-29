@@ -146,6 +146,7 @@ class RetinaNet(nn.Module):
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
         features = [features[f] for f in self.in_features]
+        self.feature_size = [f.shape[2] * f.shape[3] for f in features]
 
         anchors = self.anchor_generator(features)
         pred_logits, pred_anchor_deltas = self.head(features)
@@ -326,9 +327,10 @@ class RetinaNet(nn.Module):
         boxes_all = []
         scores_all = []
         class_idxs_all = []
+        level_all = []
 
         # Iterate over every feature level
-        for box_cls_i, box_reg_i, anchors_i in zip(box_cls, box_delta, anchors):
+        for box_cls_i, box_reg_i, anchors_i, curr_level in zip(box_cls, box_delta, anchors, torch.arange(len(self.feature_size))):
             # (HxWxAxK,)
             box_cls_i = box_cls_i.flatten().sigmoid_()
 
@@ -349,15 +351,18 @@ class RetinaNet(nn.Module):
 
             box_reg_i = box_reg_i[anchor_idxs]
             anchors_i = anchors_i[anchor_idxs]
+            box_level_i = torch.ones((anchors_i.tensor.shape[0]), device=box_reg_i.device) * curr_level
+
             # predict boxes
             predicted_boxes = self.box2box_transform.apply_deltas(box_reg_i, anchors_i.tensor)
 
             boxes_all.append(predicted_boxes)
             scores_all.append(predicted_prob)
             class_idxs_all.append(classes_idxs)
+            level_all.append(box_level_i)
 
-        boxes_all, scores_all, class_idxs_all = [
-            cat(x) for x in [boxes_all, scores_all, class_idxs_all]
+        boxes_all, scores_all, class_idxs_all, level_all = [
+            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all]
         ]
         keep = batched_nms(boxes_all, scores_all, class_idxs_all, self.nms_threshold)
         keep = keep[: self.max_detections_per_image]
@@ -366,6 +371,7 @@ class RetinaNet(nn.Module):
         result.pred_boxes = Boxes(boxes_all[keep])
         result.scores = scores_all[keep]
         result.pred_classes = class_idxs_all[keep]
+        result.level = level_all[keep]
         return result
 
     def preprocess_image(self, batched_inputs):

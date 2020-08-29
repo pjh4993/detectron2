@@ -58,6 +58,7 @@ class FPN(Backbone):
         output_convs = []
 
         use_bias = norm == ""
+        prev_weight = None
         for idx, in_channels in enumerate(in_channels_per_feature):
             lateral_norm = get_norm(norm, out_channels)
             output_norm = get_norm(norm, out_channels)
@@ -76,9 +77,12 @@ class FPN(Backbone):
             )
             weight_init.c2_xavier_fill(lateral_conv)
             weight_init.c2_xavier_fill(output_conv)
+
             stage = int(math.log2(strides[idx]))
             self.add_module("fpn_lateral{}".format(stage), lateral_conv)
             self.add_module("fpn_output{}".format(stage), output_conv)
+            
+                
 
             lateral_convs.append(lateral_conv)
             output_convs.append(output_conv)
