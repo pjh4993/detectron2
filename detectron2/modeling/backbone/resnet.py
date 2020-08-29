@@ -434,6 +434,13 @@ class ResNet(Backbone):
             outputs["stem"] = x
         for stage, name in self.stages_and_names:
             x = stage(x)
+            """
+            if(name == 'res2'):
+                x = F.interpolate(x, scale_factor=2)
+            if name in self._out_features:
+                out_x = F.interpolate(x, scale_factor=0.5)
+                outputs[name] = out_x
+            """
             if name in self._out_features:
                 outputs[name] = x
         if self.num_classes is not None:

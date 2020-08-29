@@ -367,6 +367,7 @@ class Visualizer:
         scores = predictions.scores if predictions.has("scores") else None
         classes = predictions.pred_classes if predictions.has("pred_classes") else None
         labels = _create_text_labels(classes, scores, self.metadata.get("thing_classes", None))
+        levels = predictions.level if predictions.has("level") else None
         keypoints = predictions.pred_keypoints if predictions.has("pred_keypoints") else None
 
         if predictions.has("pred_masks"):
@@ -394,6 +395,7 @@ class Visualizer:
             masks=masks,
             boxes=boxes,
             labels=labels,
+            levels=levels,
             keypoints=keypoints,
             assigned_colors=colors,
             alpha=alpha,
@@ -551,6 +553,7 @@ class Visualizer:
         *,
         boxes=None,
         labels=None,
+        levels=None,
         masks=None,
         keypoints=None,
         assigned_colors=None,
@@ -670,6 +673,9 @@ class Visualizer:
                     * 0.5
                     * self._default_font_size
                 )
+
+                if levels is not None:
+                    labels[i] += (", " + str(levels[i].item()))
                 self.draw_text(
                     labels[i],
                     text_pos,

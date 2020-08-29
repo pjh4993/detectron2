@@ -137,7 +137,8 @@ class FPN(Backbone):
             prev_features = lateral_features + top_down_features
             if self._fuse_type == "avg":
                 prev_features /= 2
-            results.insert(0, output_conv(prev_features))
+            results.insert(0, F.interpolate(output_conv(prev_features),scale_factor=0.5))
+            #results.insert(0, output_conv(prev_features))
 
         if self.top_block is not None:
             top_block_in_feature = bottom_up_features.get(self.top_block.in_feature, None)

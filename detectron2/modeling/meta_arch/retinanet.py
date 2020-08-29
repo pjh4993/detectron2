@@ -146,14 +146,20 @@ class RetinaNet(nn.Module):
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
         features = [features[f] for f in self.in_features]
+        
+
         self.feature_size = [f.shape[2] * f.shape[3] for f in features]
 
         anchors = self.anchor_generator(features)
+
         pred_logits, pred_anchor_deltas = self.head(features)
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [permute_to_N_HWA_K(x, self.num_classes) for x in pred_logits]
         pred_anchor_deltas = [permute_to_N_HWA_K(x, 4) for x in pred_anchor_deltas]
 
+        #anchors = [anchors[2]]
+        #pred_anchor_deltas = [pred_anchor_deltas[2]]
+        #pred_logits = [pred_logits[2]]
         if self.training:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
