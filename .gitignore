@@ -6,6 +6,7 @@ inference_test_output
 
 *.jpg
 *.png
+*.jpeg
 *.txt
 *.json
 *.diff
