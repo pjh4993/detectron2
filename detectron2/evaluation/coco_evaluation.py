@@ -270,6 +270,8 @@ class COCOEvaluator(DatasetEvaluator):
             "keypoints": ["AP", "AP50", "AP75", "APm", "APl"],
         }[iou_type]
 
+        arng_names = ["all","small","medium","large"]
+
         if coco_eval is None:
             self._logger.warn("No predictions from the model!")
             return {metric: float("nan") for metric in metrics}
@@ -297,14 +299,24 @@ class COCOEvaluator(DatasetEvaluator):
         for idx, name in enumerate(class_names):
             # area range index 0: all area ranges
             # max dets index -1: typically 100 per image
-            precision = precisions[:, :, idx, 0, -1]
-            precision = precision[precision > -1]
-            ap = np.mean(precision) if precision.size else float("nan")
-            results_per_category.append(("{}".format(name), float(ap * 100)))
+            for arng_idx, rng_name in enumerate(arng_names):
+                precision = precisions[:, :, idx, arng_idx, -1]
+                precision = precision[precision > -1]
+                ap = np.mean(precision) if precision.size else float("nan")
+                results_per_category.append(("{}, {}".format(name,rng_name), float(ap * 100)))
 
         # tabulate it
         N_COLS = min(6, len(results_per_category) * 2)
         results_flatten = list(itertools.chain(*results_per_category))
+
+        result_dict = {}
+
+        for i in range(len(results_flatten)//2):
+            result_dict[results_flatten[2*i]] = results_flatten[2*i+1]
+
+        with open('result_dict.json','w') as fp:
+            json.dump(result_dict, fp)
+
         results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])
         table = tabulate(
             results_2d,
@@ -339,6 +351,7 @@ def instances_to_coco_json(instances, img_id):
     boxes = boxes.tolist()
     scores = instances.scores.tolist()
     classes = instances.pred_classes.tolist()
+    level = instances.level.tolist()
 
     has_mask = instances.has("pred_masks")
     if has_mask:
@@ -366,6 +379,7 @@ def instances_to_coco_json(instances, img_id):
             "category_id": classes[k],
             "bbox": boxes[k],
             "score": scores[k],
+            "level": level[k]
         }
         if has_mask:
             result["segmentation"] = rles[k]
@@ -512,6 +526,7 @@ def _evaluate_predictions_on_coco(
             c.pop("bbox", None)
 
     coco_dt = coco_gt.loadRes(coco_results)
+    use_fast_impl = False
     coco_eval = (COCOeval_opt if use_fast_impl else COCOeval)(coco_gt, coco_dt, iou_type)
 
     if iou_type == "keypoints":

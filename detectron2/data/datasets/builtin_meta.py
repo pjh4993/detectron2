@@ -268,5 +268,9 @@ def _get_builtin_metadata(dataset_name):
         return {
             "thing_classes": ["object"]
         }
+    elif dataset_name == "novel":
+        return {
+            "thing_classes": ["object"]
+        }
 
     raise KeyError("No built-in metadata for dataset {}".format(dataset_name))

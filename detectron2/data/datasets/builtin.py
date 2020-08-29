@@ -108,6 +108,11 @@ _PREDEFINED_SPLITS_SKU["SKU"] = {
     "SKU_val": ("SKU110/val", "SKU110/annotations/annotations_val.csv"),
     "SKU_test": ("SKU110/test", "SKU110/annotations/annotations_test.csv"),
 }
+_PREDEFINED_SPLITS_NOVEL = {}
+_PREDEFINED_SPLITS_NOVEL["novel"] = {
+    "novel_train": ("novel/train", "novel/annotations/annotations_train.csv"),
+    "novel_test": ("novel/test", "novel/annotations/annotations_test.csv"),
+}
 
 def register_all_sku(root):
     for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_SKU.items():
@@ -119,6 +124,18 @@ def register_all_sku(root):
                 os.path.join(root, json_file) if "://" not in json_file else json_file,
                 os.path.join(root, image_root),
             )
+
+def register_all_novel(root):
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_NOVEL.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_SKU_instances(
+                key,
+                _get_builtin_metadata(dataset_name),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
+
 
 
 def register_all_coco(root):
@@ -245,3 +262,4 @@ register_all_lvis(_root)
 register_all_cityscapes(_root)
 register_all_pascal_voc(_root)
 register_all_sku(_root)
+register_all_novel(_root)

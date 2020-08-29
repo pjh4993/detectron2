@@ -7,9 +7,13 @@ MODEL:
     NUM_CLASSES : 1
   ANCHOR_GENERATOR:
     NAME : "DenseBoxAnchorGenerator"
+DATASETS:
+  TRAIN: ("coco_2014_train",)
+  TEST: ("coco_2014_val",)
+
 
 # This is similar to the setting used in Mask R-CNN paper, Appendix A
 # But there are some differences, e.g., we did not initialize the output
 # layer using the corresponding classes from COCO
 
-OUTPUT_DIR: "output/FCOS_R_50_FPN_1x/"
+OUTPUT_DIR: "output/COCO-Detection/FCOS_R_50_FPN_1x/"

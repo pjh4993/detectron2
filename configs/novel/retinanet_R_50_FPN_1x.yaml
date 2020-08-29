@@ -1,0 +1,21 @@
+_BASE_: "../Base-RetinaNet.yaml"
+MODEL:
+  WEIGHTS: "output/COCO-Detection/retinanet_R_50_FPN_1x/model_final.pth"
+  RESNETS:
+    DEPTH: 50
+  RETINANET:
+    NUM_CLASSES : 1
+
+# This is similar to the setting used in Mask R-CNN paper, Appendix A
+# But there are some differences, e.g., we did not initialize the output
+# layer using the corresponding classes from COCO
+
+DATASETS:
+  TRAIN: ("novel_train",)
+  TEST: ("novel_test",)
+
+OUTPUT_DIR: "output/novel/retinanet_R_50_FPN_1x/"
+
+SOLVER:
+  STEPS: (210000, 250000)
+  MAX_ITER: 270000

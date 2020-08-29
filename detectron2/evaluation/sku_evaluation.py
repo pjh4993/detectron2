@@ -215,11 +215,12 @@ class SKUEvaluator(DatasetEvaluator):
             # Saving generated box proposals to file.
             # Predicted box_proposals are in XYXY_ABS mode.
             bbox_mode = BoxMode.XYXY_ABS.value
-            ids, boxes, objectness_logits = [], [], []
+            ids, boxes, objectness_logits, level = [], [], [], []
             for prediction in predictions:
                 ids.append(prediction["image_id"])
                 boxes.append(prediction["proposals"].proposal_boxes.tensor.numpy())
                 objectness_logits.append(prediction["proposals"].objectness_logits.numpy())
+                level.append(prediction["level"])
 
             proposal_data = {
                 "boxes": boxes,
@@ -296,6 +297,15 @@ class SKUEvaluator(DatasetEvaluator):
         # tabulate it
         N_COLS = min(6, len(results_per_category) * 2)
         results_flatten = list(itertools.chain(*results_per_category))
+
+        result_dict = {}
+
+        for i in range(len(results_flatten)//2):
+            result_dict[results_flatten[2*i]] = results_flatten[2*i+1]
+
+        with open('result_dict_sku.json','w') as fp:
+            json.dump(result_dict, fp)
+
         results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])
         table = tabulate(
             results_2d,
