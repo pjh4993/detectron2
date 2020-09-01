@@ -5,5 +5,5 @@ MODEL:
     DEPTH: 50
 DATASETS:
   TRAIN: ("coco_2014_train",)
-  TEST: ("coco_2014_train",)
-OUTPUT_DIR: "output/COCO-Detection/retinanet_R_50_FPN_1x/"
+  TEST: ("coco_2014_minival",)
+OUTPUT_DIR: "output/COCO-Detection/retinanet_R_50_FPN_1x_without_large/"

@@ -33,6 +33,7 @@ from .register_SKU import register_SKU_instances
 _PREDEFINED_SPLITS_COCO = {}
 _PREDEFINED_SPLITS_COCO["coco"] = {
     "coco_2014_train": ("coco/train2014", "coco/annotations/instances_train2014.json"),
+    "coco_2014_train_without_large": ("coco/train2014", "coco/annotations/coco_without_large.json"),
     "coco_2014_val": ("coco/val2014", "coco/annotations/instances_val2014.json"),
     "coco_2014_minival": ("coco/val2014", "coco/annotations/instances_minival2014.json"),
     "coco_2014_minival_100": ("coco/val2014", "coco/annotations/instances_minival2014_100.json"),

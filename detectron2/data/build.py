@@ -172,7 +172,7 @@ def print_instances_class_histogram(dataset_dicts, class_names):
         area = [x["bbox"][2] * x["bbox"][3] for x in annos if not x.get("iscrowd",0)]
         for i in range(len(areaRng)):
             area_limit = areaRng[i]
-            curr_area = [(area_limit[0] < ar and area_limit[1] > ar) for ar in area]
+            curr_area = [(area_limit[0] < ar and area_limit[1] >= ar) for ar in area]
             histogram[:,i] += np.histogram(np.array(classes)[curr_area], bins=hist_bins)[0]
         #histogram += np.histogram(classes, bins=hist_bins)[0]
 

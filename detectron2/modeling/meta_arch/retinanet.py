@@ -146,7 +146,6 @@ class RetinaNet(nn.Module):
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
         features = [features[f] for f in self.in_features]
-        
 
         self.feature_size = [f.shape[2] * f.shape[3] for f in features]
 
@@ -163,14 +162,8 @@ class RetinaNet(nn.Module):
         if self.training:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-            for gt_inst in gt_instances:
-                sort_idx = torch.sort(gt_inst.gt_boxes.area())[1]
-                gt_inst.gt_boxes = gt_inst.gt_boxes[sort_idx]
-                gt_inst.gt_classes = gt_inst.gt_classes[sort_idx]
-
             gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
             losses = self.losses(anchors, pred_logits, gt_labels, pred_anchor_deltas, gt_boxes)
-
             if self.vis_period > 0:
                 storage = get_event_storage()
                 if storage.iter % self.vis_period == 0:
