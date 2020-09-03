@@ -219,20 +219,18 @@ class FCOS(nn.Module):
         assert((gt_anchor_deltas[fore_ground_mask] < 0).sum() == 0)
         assert((cat(pred_densebox_regress,dim=1)[fore_ground_mask] < 0).sum() == 0)
         assert((torch.sigmoid(cat(pred_centerness,dim=1))[fore_ground_mask] < 0).sum() == 0)
-
-
+ 
+ 
         # classification and regression loss
-        gt_labels[~fore_ground_mask] = -1
-        gt_labels += 1
-        assert((gt_labels < 0 ).sum() == 0)
-        """
+        assert((gt_labels == self.num_classes).sum() == 0)
+        gt_labels[~fore_ground_mask] = self.num_classes
+        #change target to one hot vector
         gt_labels_target = F.one_hot(gt_labels, num_classes=self.num_classes+1)[
-            :, :
+            :, :, :-1
         ]  # no loss for the last (background) class
-        """
         loss_cls = sigmoid_focal_loss_jit(
             cat(pred_logits, dim=1),
-            gt_labels.to(pred_logits[0].dtype).unsqueeze(-1),
+            gt_labels_target.to(pred_logits[0].dtype),
             alpha=self.focal_loss_alpha,
             gamma=self.focal_loss_gamma,
             reduction="sum",
@@ -248,7 +246,7 @@ class FCOS(nn.Module):
         loss_centerness = nn.BCELoss(reduction="sum")(
             torch.sigmoid(cat(pred_centerness, dim=1)[fore_ground_mask]),
             gt_centerness[fore_ground_mask].unsqueeze(-1)
-        )
+        ) 
 
         num_pos_anchors += 1
 
@@ -352,9 +350,9 @@ class FCOS(nn.Module):
         # Iterate over every feature level
         for box_cls_i, box_reg_i, anchors_i, centerness_i in zip(box_cls, box_delta, anchors, centerness):
             # (HxWxAxK,)
-            box_cls_i = box_cls_i.flatten().sigmoid_()
+            box_cls_i = box_cls_i.flatten().sigmoid_().view(-1, self.num_classes).permute(1,0)
             centerness_i = centerness_i.flatten().sigmoid_()
-            box_cls_i *= centerness_i
+            box_cls_i = (box_cls_i * centerness_i).permute(1,0).flatten()
 
             # Keep top k top scoring indices only.
             num_topk = min(self.topk_candidates, box_reg_i.size(0))
@@ -362,7 +360,7 @@ class FCOS(nn.Module):
             predicted_prob, topk_idxs = box_cls_i.sort(descending=True)
             predicted_prob = predicted_prob[:num_topk]
             topk_idxs = topk_idxs[:num_topk]
-
+ 
             # filter out the proposals with low confidence score
             keep_idxs = predicted_prob > self.score_threshold
             predicted_prob = predicted_prob[keep_idxs]
