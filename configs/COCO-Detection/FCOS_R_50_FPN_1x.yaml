@@ -7,9 +7,10 @@ MODEL:
     NUM_CLASSES : 1
   ANCHOR_GENERATOR:
     NAME : "DenseBoxAnchorGenerator"
+    OFFSET : 0.5
 DATASETS:
-  TRAIN: ("coco_2014_train",)
-  TEST: ("coco_2014_val",)
+  TRAIN: ("coco_2017_train",)
+  TEST: ("coco_2017_val",)
 
 
 # This is similar to the setting used in Mask R-CNN paper, Appendix A
