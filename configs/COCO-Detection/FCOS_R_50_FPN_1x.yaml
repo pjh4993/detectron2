@@ -8,6 +8,7 @@ MODEL:
     NAME : "DenseBoxAnchorGenerator"
   FPN:
     NORM: "GN"
+    OFFSET : 0.5
 DATASETS:
   TRAIN: ("coco_2017_train",)
   TEST: ("coco_2017_val",)

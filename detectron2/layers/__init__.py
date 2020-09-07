@@ -10,5 +10,6 @@ from .wrappers import BatchNorm2d, Conv2d, ConvTranspose2d, cat, interpolate, Li
 from .blocks import CNNBlockBase
 from .aspp import ASPP
 from .iou_loss import IOULoss
+from .scale import Scale
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

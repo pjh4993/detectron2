@@ -124,14 +124,8 @@ class Box2BoxTransform(object):
             st += curr_num
         return deltas
 
-    def apply_densebox_deltas(self, deltas, center, feature_num_per_level):
-        st = 0
-        for level in range(len(feature_num_per_level)):
-            curr_num = feature_num_per_level[level]
-            curr_num = curr_num[0] * curr_num[1]
-            deltas[st:st+curr_num,:] *= self.fpn_stride[level]
-            st += curr_num
-
+    def apply_densebox_deltas(self, deltas, center, level):
+        deltas *= self.fpn_stride[int(level)]
         deltas[:,0:2] *= -1
         pred_boxes = deltas + center
         return pred_boxes
