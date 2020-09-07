@@ -20,7 +20,7 @@ class FPN(Backbone):
     """
 
     def __init__(
-        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False,
+        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False, topdown_excl = False,
     ):
         """
         Args:
@@ -61,15 +61,20 @@ class FPN(Backbone):
 
         use_bias = norm == ""
         prev_weight = None
-
+        self.topdown_excl = topdown_excl
         # stage 1. build connection for top down network for fpn
         for idx, in_channels in enumerate(fpn_in_channels_per_feature):
-            lateral_norm = get_norm(norm, out_channels)
-            output_norm = get_norm(norm, out_channels)
+            stage = int(math.log2(strides[idx]))
 
+            lateral_norm = get_norm(norm, out_channels)
             lateral_conv = Conv2d(
                 in_channels, out_channels, kernel_size=1, bias=use_bias, norm=lateral_norm
             )
+            weight_init.c2_xavier_fill(lateral_conv)
+            self.add_module("fpn_lateral{}".format(stage), lateral_conv)
+            fpn_lateral_convs.append(lateral_conv)
+
+            output_norm = get_norm(norm, out_channels)
             output_conv = Conv2d(
                 out_channels,
                 out_channels,
@@ -79,18 +84,13 @@ class FPN(Backbone):
                 bias=use_bias,
                 norm=output_norm,
             )
-            weight_init.c2_xavier_fill(lateral_conv)
             weight_init.c2_xavier_fill(output_conv)
-
-            stage = int(math.log2(strides[idx]))
-            self.add_module("fpn_lateral{}".format(stage), lateral_conv)
             self.add_module("fpn_output{}".format(stage), output_conv)
-
-            fpn_lateral_convs.append(lateral_conv)
             fpn_output_convs.append(output_conv)
 
+
         if panet_bottomup:
-            panet_in_channels_per_feature = [out_channels] * (len(fpn_output_convs)-1)
+            panet_in_channels_per_feature = [out_channels] * (len(fpn_lateral_convs)-1)
 
             for idx, in_channels in enumerate(panet_in_channels_per_feature):
                 up_norm = get_norm(norm,  out_channels)
@@ -149,6 +149,7 @@ class FPN(Backbone):
         bottom_up_features = self.bottom_up(x)
         x = [bottom_up_features[f] for f in self.in_features[::-1]]
         results = []
+
         prev_features = self.fpn_lateral_convs[0](x[0])
         results.append(self.fpn_output_convs[0](prev_features))
         for features, lateral_conv, output_conv in zip(
@@ -156,16 +157,21 @@ class FPN(Backbone):
         ):
             top_down_features = F.interpolate(prev_features, scale_factor=2, mode="nearest")
             lateral_features = lateral_conv(features)
-            prev_features = lateral_features + top_down_features
+            if self.topdown_excl:
+                prev_features = lateral_features
+            else:
+                prev_features = lateral_features + top_down_features
             if self._fuse_type == "avg":
                 prev_features /= 2
+
             results.insert(0, output_conv(prev_features))
-        
+
+            
         if len(self.pan_up_convs):
             prev_features = results[0]
             pan_results = [prev_features]
             for features, up_conv in zip(
-                results[1:], self.pan_up_convs
+                results[1:], self.pan_up_convs, self.pan_out_convs
             ):
                 up_features = up_conv(prev_features)
                 prev_features = features + up_features
@@ -278,6 +284,7 @@ def build_retinanet_resnet_fpn_backbone(cfg, input_shape: ShapeSpec):
         norm=cfg.MODEL.FPN.NORM,
         top_block=LastLevelP6P7(in_channels_p6p7, out_channels),
         fuse_type=cfg.MODEL.FPN.FUSE_TYPE,
-        panet_bottomup=cfg.MODEL.FPN.PANET_BOTTOMUP
+        panet_bottomup=cfg.MODEL.FPN.PANET_BOTTOMUP,
+        topdown_excl=cfg.MODEL.FPN.TOPDOWN_EXCL
     )
     return backbone

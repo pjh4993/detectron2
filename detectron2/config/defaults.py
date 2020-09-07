@@ -149,6 +149,7 @@ _C.MODEL.FPN.NORM = ""
 # Types for fusing the FPN top-down and lateral features. Can be either "sum" or "avg"
 _C.MODEL.FPN.FUSE_TYPE = "sum"
 _C.MODEL.FPN.PANET_BOTTOMUP = False
+_C.MODEL.FPN.TOPDOWN_EXCL = False
 
 
 # ---------------------------------------------------------------------------- #
