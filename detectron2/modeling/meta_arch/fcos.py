@@ -262,8 +262,8 @@ class FCOS(nn.Module):
             ) / num_pos_anchors
 
         else:
-            reg_loss = box_regression_flatten.sum()
-            centerness_loss = centerness_flatten.sum()
+            loss_box_reg = box_regression_flatten.sum()
+            loss_centerness = centerness_flatten.sum()
 
         return {
             "loss_cls": loss_cls ,

@@ -4,7 +4,7 @@ import fvcore.nn.weight_init as weight_init
 import torch.nn.functional as F
 from torch import nn
 
-from detectron2.layers import Conv2d, ShapeSpec, get_norm
+from detectron2.layers import Conv2d, ShapeSpec, get_norm, AttentionConv
 
 from .backbone import Backbone
 from .build import BACKBONE_REGISTRY
@@ -20,7 +20,7 @@ class FPN(Backbone):
     """
 
     def __init__(
-        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False, topdown_excl = False,
+        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False, topdown_excl = False, refine_upsample = False
     ):
         """
         Args:
@@ -57,6 +57,7 @@ class FPN(Backbone):
         _assert_strides_are_log2_contiguous(strides)
         fpn_lateral_convs = []
         fpn_output_convs = []
+        fpn_refine_upsample = []
         pan_up_convs = []
 
         use_bias = norm == ""
@@ -88,6 +89,22 @@ class FPN(Backbone):
             self.add_module("fpn_output{}".format(stage), output_conv)
             fpn_output_convs.append(output_conv)
 
+            if refine_upsample and stage < 5:
+                refine_norm = get_norm(norm, out_channels)
+                refine_conv = AttentionConv(
+                    out_channels,
+                    out_channels,
+                    key_channels=in_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=use_bias,
+                    norm=refine_norm)
+                refine_conv.reset_parameters()
+                self.add_module("refine_upsample{}".format(stage), refine_conv)
+                fpn_refine_upsample.append(refine_conv)
+            elif refine_upsample is False:
+                fpn_refine_upsample.append(lambda x:x)
 
         if panet_bottomup:
             panet_in_channels_per_feature = [out_channels] * (len(fpn_lateral_convs)-1)
@@ -112,6 +129,7 @@ class FPN(Backbone):
         self.fpn_lateral_convs = fpn_lateral_convs[::-1]
         self.fpn_output_convs = fpn_output_convs[::-1]
         self.pan_up_convs = pan_up_convs
+        self.refine_upsample = fpn_refine_upsample[::-1]
         self.top_block = top_block
         self.in_features = in_features
         self.bottom_up = bottom_up
@@ -152,15 +170,15 @@ class FPN(Backbone):
 
         prev_features = self.fpn_lateral_convs[0](x[0])
         results.append(self.fpn_output_convs[0](prev_features))
-        for features, lateral_conv, output_conv in zip(
-            x[1:], self.fpn_lateral_convs[1:], self.fpn_output_convs[1:]
+        for features, lateral_conv, output_conv, refine_conv in zip(
+            x[1:], self.fpn_lateral_convs[1:], self.fpn_output_convs[1:], self.refine_upsample
         ):
             top_down_features = F.interpolate(prev_features, scale_factor=2, mode="nearest")
             lateral_features = lateral_conv(features)
             if self.topdown_excl:
                 prev_features = lateral_features
             else:
-                prev_features = lateral_features + top_down_features
+                prev_features = lateral_features + refine_conv(top_down_features, features)
             if self._fuse_type == "avg":
                 prev_features /= 2
 
@@ -285,6 +303,7 @@ def build_retinanet_resnet_fpn_backbone(cfg, input_shape: ShapeSpec):
         top_block=LastLevelP6P7(in_channels_p6p7, out_channels),
         fuse_type=cfg.MODEL.FPN.FUSE_TYPE,
         panet_bottomup=cfg.MODEL.FPN.PANET_BOTTOMUP,
-        topdown_excl=cfg.MODEL.FPN.TOPDOWN_EXCL
+        topdown_excl=cfg.MODEL.FPN.TOPDOWN_EXCL,
+        refine_upsample=cfg.MODEL.FPN.REFINE_UPSAMPLE,
     )
     return backbone

@@ -150,6 +150,7 @@ _C.MODEL.FPN.NORM = ""
 _C.MODEL.FPN.FUSE_TYPE = "sum"
 _C.MODEL.FPN.PANET_BOTTOMUP = False
 _C.MODEL.FPN.TOPDOWN_EXCL = False
+_C.MODEL.FPN.REFINE_UPSAMPLE = False
 
 
 # ---------------------------------------------------------------------------- #
@@ -524,7 +525,7 @@ _C.MODEL.RESNETS.STEM_OUT_CHANNELS = 64
 # Apply Deformable Convolution in stages
 # Specify if apply deform_conv on Res2, Res3, Res4, Res5
 _C.MODEL.RESNETS.DEFORM_ON_PER_STAGE = [False, False, False, False]
-# Use True to use modulated deform_conv (DeformableV2, https://arxiv.org/abs/1811.11168);
+# Use True to use modulated deform_conv (Deformaself.bleV2, https://arxiv.org/abs/1811.11168);
 # Use False for DeformableV1.
 _C.MODEL.RESNETS.DEFORM_MODULATED = False
 # Number of groups in deformable conv.

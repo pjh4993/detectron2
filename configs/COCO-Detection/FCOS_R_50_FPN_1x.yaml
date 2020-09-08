@@ -1,14 +1,13 @@
 _BASE_: "../Base-FCOS.yaml"
 MODEL:
-  WEIGHTS: "output/FCOS_R_50_GN/R-50-GN.pkl"
+  WEIGHTS: "detectron2://ImageNetPretrained/MSRA/R-50.pkl"
   RESNETS:
     DEPTH: 50
-    NORM: "GN"
   ANCHOR_GENERATOR:
     NAME : "DenseBoxAnchorGenerator"
-  FPN:
-    NORM: "GN"
     OFFSET : 0.5
+  FPN:
+    REFINE_UPSAMPLE: True
 DATASETS:
   TRAIN: ("coco_2017_train",)
   TEST: ("coco_2017_val",)
