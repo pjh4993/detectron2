@@ -97,6 +97,7 @@ SKU_CATEGORIES = [
 CATEGORIES = COCO_CATEGORIES
 #CATEGORIES = SKU_CATEGORIES
 
+"""
 def main():
     with open('data_dict_train.json') as fp:
         data_dict = json.load(fp)
@@ -122,17 +123,16 @@ def main():
         result[0,k,1] = small_ap
         result[1,k,1] = medium_ap
         result[2,k,1] = large_ap
-        """
-        whole_count += sample_count[0]
-        fig, ax = plt.subplots(1,1)
-        ax.plot(result[0,k,0],result[0,k,1],"ro")
-        ax.plot(result[1,k,0],result[1,k,1],"yo")
-        ax.plot(result[2,k,0],result[2,k,1],"go")
-        ax.set_ylim((0,100))
-        ax.set_xlabel("# of object / Whole #")
-        ax.set_ylabel('mAP')
-        plt.savefig("dist/"+key+".png")
-        """
+
+            whole_count += sample_count[0]
+            fig, ax = plt.subplots(1,1)
+            ax.plot(result[0,k,0],result[0,k,1],"ro")
+            ax.plot(result[1,k,0],result[1,k,1],"yo")
+            ax.plot(result[2,k,0],result[2,k,1],"go")
+            ax.set_ylim((0,100))
+            ax.set_xlabel("# of object / Whole #")
+            ax.set_ylabel('mAP')
+            plt.savefig("dist/"+key+".png")
     
     fig, ax = plt.subplots(1,1)
     ax.plot(result[0,:,0] / np.sum(result[:,:,0]), result[0,:,1], "ro")
@@ -156,14 +156,13 @@ def main():
     large_image_id = torch.unique(large_image[:,0]).tolist()
     large_image_cat, cat_count = torch.unique(large_image[:,1], return_counts=True)
     print(len(large_image_cat), cat_count)
-    coco_api.dataset['images'] = [image for image in coco_api.dataset['images'] if image['id'] not in large_image_id]
-    coco_api.dataset['annotations'] = [ann for ann in coco_api.dataset['annotations'] if ann['image_id'] not in large_image_id]
+    coco_api.dataset['images'] = [image for image in coco_api.dataset['images'] if image['id'] in large_image_id]
+    coco_api.dataset['annotations'] = [ann for ann in coco_api.dataset['annotations'] if ann['image_id'] in large_image_id]
     coco_api.createIndex()
     large_anns = coco_api.getAnnIds(areaRng=[96 ** 2, 1e5 ** 2])
 
     with open('coco_without_large.json','w') as fp:
         json.dump(coco_api.dataset, fp)
-"""
 
    
 if __name__ == "__main__":

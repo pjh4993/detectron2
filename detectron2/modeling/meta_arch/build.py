@@ -2,6 +2,7 @@
 import torch
 
 from detectron2.utils.registry import Registry
+from detectron2.modeling.PeakResponseMapping import PeakResponseMapping
 
 META_ARCH_REGISTRY = Registry("META_ARCH")  # noqa F401 isort:skip
 META_ARCH_REGISTRY.__doc__ = """
@@ -20,4 +21,11 @@ def build_model(cfg):
     meta_arch = cfg.MODEL.META_ARCHITECTURE
     model = META_ARCH_REGISTRY.get(meta_arch)(cfg)
     model.to(torch.device(cfg.MODEL.DEVICE))
+    if cfg.MODEL.PRM.ATTACH:
+        model.prm = PeakResponseMapping({
+            'backbone' : model.backbone,
+            'cls_subnet' : model.head.cls_subnet,
+            'cls_score' : model.head.cls_score,
+            'cfg':cfg.MODEL,
+        })
     return model

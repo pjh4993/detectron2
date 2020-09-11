@@ -208,6 +208,7 @@ class FCOS(nn.Module):
         centerness_flatten = []
         labels_flatten = []
         reg_targets_flatten = []
+        weight_flatten = []
 
         for l in range(len(gt_labels)):
            box_cls_flatten.append(pred_logits[l].reshape(-1, self.num_classes))
@@ -253,7 +254,7 @@ class FCOS(nn.Module):
             loss_box_reg = IOULoss(loss_type="giou")(
                 box_regression_flatten,
                 reg_targets_flatten,
-                centerness_targets
+                centerness_targets 
             ) / sum_centerness_targets
 
             loss_centerness = nn.BCEWithLogitsLoss(reduction="sum")(

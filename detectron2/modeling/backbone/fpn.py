@@ -104,7 +104,7 @@ class FPN(Backbone):
                 self.add_module("refine_upsample{}".format(stage), refine_conv)
                 fpn_refine_upsample.append(refine_conv)
             elif refine_upsample is False:
-                fpn_refine_upsample.append(lambda x:x)
+                fpn_refine_upsample.append(lambda x,y:x)
 
         if panet_bottomup:
             panet_in_channels_per_feature = [out_channels] * (len(fpn_lateral_convs)-1)

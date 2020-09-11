@@ -7,7 +7,7 @@ MODEL:
     NAME : "DenseBoxAnchorGenerator"
     OFFSET : 0.5
   FPN:
-    REFINE_UPSAMPLE: True
+    REFINE_UPSAMPLE: False
 DATASETS:
   TRAIN: ("coco_2017_train",)
   TEST: ("coco_2017_val",)

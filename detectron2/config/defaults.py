@@ -490,6 +490,11 @@ _C.MODEL.FCOS.FOCAL_LOSS_GAMMA = 2.0
 _C.MODEL.FCOS.FOCAL_LOSS_ALPHA = 0.25
 _C.MODEL.FCOS.SMOOTH_L1_LOSS_BETA = 0.1
 
+_C.MODEL.PRM = CN()
+_C.MODEL.PRM.ATTACH = False
+_C.MODEL.PRM.WIN_SIZE = 3
+_C.MODEL.PRM.ENABLE_BACK_PROP = True
+
 # ---------------------------------------------------------------------------- #
 # ResNe[X]t options (ResNets = {ResNet, ResNeXt}
 # Note that parts of a resnet may be used for both the backbone and the head
