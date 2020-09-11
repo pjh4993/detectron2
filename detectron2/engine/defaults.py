@@ -204,19 +204,19 @@ class DefaultPredictor:
                 the output of the model for one image only.
                 See :doc:`/tutorials/models` for details about the format.
         """
-        with torch.no_grad():  # https://github.com/sphinx-doc/sphinx/issues/4258
-            # Apply pre-processing to image.
-            if self.input_format == "RGB":
-                # whether the model expects BGR inputs or RGB
-                original_image = original_image[:, :, ::-1]
-            height, width = original_image.shape[:2]
-            image = self.aug.get_transform(original_image).apply_image(original_image)
-            image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
+        #with torch.no_grad():  # https://github.com/sphinx-doc/sphinx/issues/4258
+        # Apply pre-processing to image.
+        if self.input_format == "RGB":
+            # whether the model expects BGR inputs or RGB
+            original_image = original_image[:, :, ::-1]
+        height, width = original_image.shape[:2]
+        image = self.aug.get_transform(original_image).apply_image(original_image)
+        image = torch.as_tensor(image.astype("float32").transpose(2, 0, 1))
 
-            inputs = {"image": image, "height": height, "width": width}
-            predictions = self.model([inputs])[0]
-            self.model.prm(inputs['image'])
-            return predictions
+        inputs = {"image": image, "height": height, "width": width}
+        predictions = self.model([inputs])[0]
+        self.model.prm([inputs])
+        return predictions
 
 
 class DefaultTrainer(SimpleTrainer):

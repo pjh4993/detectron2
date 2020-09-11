@@ -124,6 +124,10 @@ class FCOS(nn.Module):
         vis_img = vis_img.transpose(2, 0, 1)
         vis_name = f"Top: GT bounding boxes; Bottom: {max_boxes} Highest Scoring Results"
         storage.put_image(vis_name, vis_img)
+    
+    def class_response_maps(self):
+        return self.pred_logits, self.image_tensor
+
 
     def forward(self, batched_inputs):
         """
@@ -144,6 +148,7 @@ class FCOS(nn.Module):
                 mapping from a named loss to a tensor storing the loss. Used during training only.
         """
         images = self.preprocess_image(batched_inputs)
+        self.image_tensor = images.tensor
         features = self.backbone(images.tensor)
         features = [features[f] for f in self.in_features]
 
@@ -151,6 +156,8 @@ class FCOS(nn.Module):
 
         anchors = self.anchor_generator(features)
         pred_logits, pred_densebox_regress, pred_centerness = self.head(features)
+
+        self.pred_logits = pred_logits
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [permute_to_N_HWA_K(x, self.num_classes) for x in pred_logits]
         pred_densebox_regress = [permute_to_N_HWA_K(x, 4) for x in pred_densebox_regress]

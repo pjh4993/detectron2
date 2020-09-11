@@ -30,18 +30,16 @@ class Jointable(nn.Module):
 class PeakResponseMapping(object):
  
     def __init__(self, args):
-        self.backbone = args['backbone']
-        self.cls_subnet = args['cls_subnet']
-        self.cls_score = args['cls_score']
-        cfg = args['cfg']
+        self.backbone = args[0]
+        cfg = args[1]
 
         super(PeakResponseMapping, self).__init__()
 
         self.inferencing = True
         # return only the class response maps in inference mode if peak backpropagation is disabled
-        self.enable_peak_backprop = cfg.PRM.ENABLE_BACK_PROP
+        self.enable_peak_backprop = cfg.MODEL.PRM.ENABLE_BACK_PROP
         # window size for peak finding
-        self.win_size = cfg.PRM.WIN_SIZE
+        self.win_size = cfg.MODEL.PRM.WIN_SIZE
         # sub-pixel peak finding
               
     """
@@ -329,14 +327,8 @@ class PeakResponseMapping(object):
     """
     
     def __call__(self, input, target=None, class_threshold=0.5, peak_threshold=3, retrieval_cfg=None):  
-        assert input.dim() == 4, 'PeakResponseMapping layer only supports batch mode.'
-        if self.inferencing:
-            input.requires_grad_()
-
         #Feature pyramid forward 처리 해야함
-        features = self.backbone(input)
-
-        class_response_maps = super(PeakResponseMapping, self).forward(input)
+        features, image_tensor = self.backbone.class_response_maps()
 
         peak_list, aggregation = peak_stimulation_ori(class_response_maps,win_size=self.win_size, peak_filter=self.peak_filter)
         peaks=torch.tensor([1]).cuda()

@@ -22,10 +22,5 @@ def build_model(cfg):
     model = META_ARCH_REGISTRY.get(meta_arch)(cfg)
     model.to(torch.device(cfg.MODEL.DEVICE))
     if cfg.MODEL.PRM.ATTACH:
-        model.prm = PeakResponseMapping({
-            'backbone' : model.backbone,
-            'cls_subnet' : model.head.cls_subnet,
-            'cls_score' : model.head.cls_score,
-            'cfg':cfg.MODEL,
-        })
+        model.prm = PeakResponseMapping([model, cfg])
     return model
