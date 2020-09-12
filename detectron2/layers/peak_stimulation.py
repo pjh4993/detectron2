@@ -5,7 +5,7 @@ from torch.autograd import Function
 class PeakStimulation_ori(Function):
 
     @staticmethod
-    def forward(ctx, input, target,return_aggregation, win_size, peak_filter):
+    def forward(ctx, input, return_aggregation, win_size):
         ctx.num_flags = 4
 
         # peak finding
@@ -23,9 +23,6 @@ class PeakStimulation_ori(Function):
             return_indices = True)
         peak_map = (indices == element_map)
 
-        if peak_filter:
-            mask = input >= peak_filter(input)
-            peak_map = (peak_map & mask)
         peak_list = torch.nonzero(peak_map)
         ctx.mark_non_differentiable(peak_list)
 
@@ -33,7 +30,7 @@ class PeakStimulation_ori(Function):
             peak_map = peak_map.float()
             ctx.save_for_backward(input, peak_map)
             return peak_list, (input * peak_map).view(batch_size, num_channels, -1).sum(2) / \
-                peak_map.view(batch_size, num_channels, -1).sum(2) , peak_map
+                peak_map.view(batch_size, num_channels, -1).sum(2) , input * peak_map
         else:
             return peak_list
 
@@ -47,7 +44,7 @@ class PeakStimulation_ori(Function):
 class PeakStimulation_ori_gt(Function):
 
     @staticmethod
-    def forward(ctx, input, target, return_aggregation, win_size, peak_filter):
+    def forward(ctx, input, target, return_aggregation, win_size):
         ctx.num_flags = 4
 
         # peak finding
@@ -64,10 +61,6 @@ class PeakStimulation_ori_gt(Function):
             stride = 1, 
             return_indices = True)
         peak_map = (indices == element_map)
-        if peak_filter:
-            mask = input >= peak_filter(input)
-            #mask = input > 0
-            peak_map = (peak_map & mask)
         peak_list = torch.nonzero(peak_map)
         ctx.mark_non_differentiable(peak_list)
         
@@ -138,8 +131,8 @@ class PeakStimulation_ori_gt(Function):
         grad_input = peak_map * grad_output1.view(batch_size, num_channels, 1, 1)
         return (grad_input,) + (None,) * ctx.num_flags
 
-def peak_stimulation_ori(input,return_aggregation=True, win_size=3, peak_filter=None):
-    return PeakStimulation_ori.apply(input, return_aggregation, win_size, peak_filter)
+def peak_stimulation_ori(input,return_aggregation=True, win_size=3):
+    return PeakStimulation_ori.apply(input, return_aggregation, win_size)
 
-def peak_stimulation_ori_gt(input,target, return_aggregation=True, win_size=3, peak_filter=None):
-    return PeakStimulation_ori_gt.apply(input, target,return_aggregation, win_size, peak_filter)
+def peak_stimulation_ori_gt(input,target, return_aggregation=True, win_size=3):
+    return PeakStimulation_ori_gt.apply(input, target,return_aggregation, win_size)

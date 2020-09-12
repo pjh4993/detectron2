@@ -61,6 +61,7 @@ class FCOS(nn.Module):
         self.input_format             = cfg.INPUT.FORMAT
         # fmt: on
  
+        self.prm = cfg.MODEL.PRM.ATTACH
         self.backbone = build_backbone(cfg)
 
         backbone_shape = self.backbone.output_shape()
@@ -164,7 +165,7 @@ class FCOS(nn.Module):
         pred_centerness = [permute_to_N_HWA_K(x, 1) for x in pred_centerness]
         self.feature_num_per_level = [[features[i].shape[2] ,features[i].shape[3]] for i in range(len(features))]
 
-        if self.training:
+        if self.training and self.prm is False:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
             gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
