@@ -473,12 +473,19 @@ class FCOSHead(nn.Module):
                 nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1),
                 nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1)
             )
+            for modules in [self.sft_gamma, self.sft_beta]:
+                for layer in modules.modules():
+                    if isinstance(layer, nn.Conv2d):
+                        torch.nn.init.normal_(layer.weight, mean=1.0, std=0.01)
+                        torch.nn.init.constant_(layer.bias, 0)
+
         # Initialization
-        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred, self.sft_gamma, self.sft_beta]:
+        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred]:
             for layer in modules.modules():
                 if isinstance(layer, nn.Conv2d):
                     torch.nn.init.normal_(layer.weight, mean=0, std=0.01)
                     torch.nn.init.constant_(layer.bias, 0)
+
 
         # Use prior in model initialization to improve stability
         bias_value = -(math.log((1 - prior_prob) / prior_prob))
