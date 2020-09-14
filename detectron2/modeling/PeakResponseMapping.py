@@ -3,6 +3,7 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 import numpy as np
+from torchviz import make_dot
 from detectron2.layers import peak_stimulation_ori, peak_stimulation_ori_gt, pr_conv2d
 
 
@@ -328,13 +329,13 @@ class PeakResponseMapping(object):
     
     def __call__(self, class_threshold=0.5, peak_threshold=3, retrieval_cfg=None):  
         #Feature pyramid forward 처리 해야함
-        features, input = self.backbone.class_response_maps()
+        class_response_feature, box_regress_feature, input = self.backbone.response_maps()
 
         #input.requires_grad_()
         peak_list_whole = []
         aggregation_whole = []
         peak_map_whole = []
-        for feature_per_level in features:
+        for feature_per_level in class_response_feature:
             class_response_maps = feature_per_level.sigmoid()
             peak_list_per_level, aggregation_per_level, peak_map_per_level = peak_stimulation_ori(class_response_maps,win_size=self.win_size)
             peak_list_whole.append(peak_list_per_level)
@@ -343,16 +344,20 @@ class PeakResponseMapping(object):
 
         valid_peak_whole = []
         peak_response_whole = []
+        box_response_whole = []
 
         if self.inferencing:
             for l in range(len(peak_list_whole)):
-                class_response_maps = features[l].sigmoid()
+                class_response_maps = class_response_feature[l].sigmoid()
+                box_regress_maps = box_regress_feature[l]
                 peak_list = peak_list_whole[l]
                 aggregation = aggregation_whole[l]
 
                 peak_response_maps = []
+                box_response_maps = []
                 valid_peak_list = []
                 grad_output = class_response_maps.new_empty(class_response_maps.size())
+                box_grad_out = box_regress_maps.new_empty(box_regress_maps.size())
                 peak_val_list=[]
 
                 agg_class=aggregation>=class_threshold
@@ -373,29 +378,40 @@ class PeakResponseMapping(object):
                         # print(peak_val)
                         if peak_val >= peak_threshold:
                             grad_output.zero_()
+                            box_grad_out.zero_()
                             # starting from the peak
                             grad_output[peak_list[idx, 0], peak_list[idx, 1], peak_list[idx, 2], peak_list[idx, 3]] = 1
+                            box_grad_out[peak_list[idx,0], :, peak_list[idx,2], peak_list[idx,3]] = 1
                             if input.grad is not None:
                                 input.grad.zero_()
                             class_response_maps.backward(grad_output, retain_graph=True)
-                            prm = input.grad.detach().sum(1).clone().clamp(min=0)
-                            peak_response_maps.append(prm / prm.sum())
+                            class_prm = input.grad.detach().sum(1).clone().clamp(min=0)
+                            peak_response_maps.append(class_prm / class_prm.sum())
+
+                            input.grad.zero_()
+                            box_regress_maps.backward(box_grad_out, retain_graph=True)
+                            box_prm = input.grad.detach().sum(1).clone().clamp(min=0)
+                            box_response_maps.append(box_prm / box_prm.sum())
+
                             valid_peak_list.append(peak_list[idx, :])
+
                 class_response_maps = class_response_maps.detach()
                 aggregation = aggregation.detach()
 
                 if len(peak_response_maps) > 0:
                     valid_peak_list = torch.stack(valid_peak_list)
                     peak_response_maps = torch.cat(peak_response_maps, 0)
+                    box_response_maps = torch.cat(box_response_maps, 0)
                     # classification confidence scores, class-aware and instance-aware visual cues
                 
                 aggregation_whole[l] = aggregation
                 valid_peak_whole.append(valid_peak_list)
                 peak_response_whole.append(peak_response_maps)
+                box_response_whole.append(box_response_maps)
                 
-            return aggregation, features, valid_peak_whole, peak_response_whole
+            return aggregation, class_response_feature, valid_peak_whole, peak_response_whole, box_response_whole
         else:
-            return aggregation, features
+            return aggregation, class_response_feature
 
     def train(self, mode=True):
         super(PeakResponseMapping, self).train(mode)

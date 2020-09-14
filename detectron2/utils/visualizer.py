@@ -368,6 +368,7 @@ class Visualizer:
         classes = predictions.pred_classes if predictions.has("pred_classes") else None
         labels = _create_text_labels(classes, scores, self.metadata.get("thing_classes", None))
         levels = predictions.level if predictions.has("level") else None
+        anchors = predictions.anchor if predictions.has("anchor") else None
         keypoints = predictions.pred_keypoints if predictions.has("pred_keypoints") else None
 
         if predictions.has("pred_masks"):
@@ -396,6 +397,7 @@ class Visualizer:
             boxes=boxes,
             labels=labels,
             levels=levels,
+            anchors=anchors,
             keypoints=keypoints,
             assigned_colors=colors,
             alpha=alpha,
@@ -554,6 +556,7 @@ class Visualizer:
         boxes=None,
         labels=None,
         levels=None,
+        anchors=None,
         masks=None,
         keypoints=None,
         assigned_colors=None,
@@ -630,6 +633,8 @@ class Visualizer:
             masks = [masks[idx] for idx in sorted_idxs] if masks is not None else None
             assigned_colors = [assigned_colors[idx] for idx in sorted_idxs]
             keypoints = keypoints[sorted_idxs] if keypoints is not None else None
+            levels = levels[sorted_idxs] if levels is not None else None
+            anchors = anchors[sorted_idxs] if anchors is not None else None
 
         for i in range(num_instances):
             color = assigned_colors[i]
@@ -639,6 +644,11 @@ class Visualizer:
             if masks is not None:
                 for segment in masks[i].polygons:
                     self.draw_polygon(segment.reshape(-1, 2), color, alpha=alpha)
+
+            if anchors is not None:
+                self.draw_circle(
+                    anchors[i], color
+                )
 
             if labels is not None:
                 # first get a box
@@ -683,7 +693,8 @@ class Visualizer:
                     horizontal_alignment=horiz_align,
                     font_size=font_size,
                 )
-
+                
+                
         # draw keypoints
         if keypoints is not None:
             for keypoints_per_instance in keypoints:
@@ -1066,6 +1077,35 @@ class Visualizer:
         )
         self.output.ax.add_patch(polygon)
         return self.output
+
+    def draw_prm_heatmap(self, valid_peak , peak_response, box_response):
+        stride = [8,16,32,64,128]
+        box_size = [64,128,256,512,1e5]
+        prm_size = peak_response[0][0].shape
+        resized_img = cv2.resize(cv2.cvtColor(self.img, cv2.COLOR_RGB2BGR), dsize=(prm_size[1], prm_size[0]))
+        heat_per_level = []
+        for l in range(len(peak_response)):
+            heat_map_list = []
+            for val in range(len(peak_response[l])):
+                peak_class = valid_peak[l][val][1]
+                peak_center = valid_peak[l][val][2:] + 0.5
+                peak_center *= stride[l]
+                peak_map = peak_response[l][val].detach().cpu().numpy()
+                peak_map = ((peak_map / peak_map.max()) * 255).astype(np.uint8)
+                peak_map =  cv2.applyColorMap(peak_map, cv2.COLORMAP_HOT)
+
+                box_map = box_response[l][val].detach().cpu().numpy()
+                box_map = ((box_map / box_map.max()) * 255).astype(np.uint8)
+                box_map = cv2.applyColorMap(box_map, cv2.COLORMAP_HOT)
+
+                peak_map = (resized_img + peak_map * 2.0 + box_map * 2.0).astype(np.float)
+                peak_map = ((peak_map / peak_map.max()) * 255).astype(np.uint8)
+                cv2.putText(img=peak_map, text=self.metadata.thing_classes[peak_class], org=(0,15), fontFace=cv2.FONT_HERSHEY_PLAIN, fontScale=1, color=(255,255,255), thickness=2, lineType=cv2.LINE_AA)
+                cv2.circle(img=peak_map, center=(peak_center[1], peak_center[0]), radius=5, color=(255,255,255), thickness=2)
+                cv2.rectangle(img=peak_map, pt1=(peak_center[1]-box_size[l], peak_center[0]-box_size[l]), pt2=(peak_center[1]+box_size[l], peak_center[0]+box_size[l]), color=(255,255,255), thickness=2)
+                heat_map_list.append({'peak_map':peak_map, 'peak_class': self.metadata.thing_classes[peak_class]})
+            heat_per_level.append(heat_map_list) 
+        return heat_per_level
 
     """
     Internal methods:

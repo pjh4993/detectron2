@@ -6,6 +6,7 @@ import torch
 from fvcore.nn import sigmoid_focal_loss_jit, smooth_l1_loss
 from torch import nn
 from torch.nn import functional as F
+from torch.autograd import Variable
 
 
 from detectron2.data.detection_utils import convert_image_to_rgb
@@ -20,6 +21,7 @@ from ..matcher import FCOSMatcher
 from ..postprocessing import detector_postprocess
 from .build import META_ARCH_REGISTRY
 import time
+from torchviz import make_dot
 
 __all__ = ["FCOS"]
 
@@ -126,8 +128,8 @@ class FCOS(nn.Module):
         vis_name = f"Top: GT bounding boxes; Bottom: {max_boxes} Highest Scoring Results"
         storage.put_image(vis_name, vis_img)
     
-    def class_response_maps(self):
-        return self.pred_logits, self.image_tensor
+    def response_maps(self):
+        return self.pred_logits, self.pred_densebox_regress ,self.image_tensor
 
 
     def forward(self, batched_inputs):
@@ -158,7 +160,13 @@ class FCOS(nn.Module):
         anchors = self.anchor_generator(features)
         pred_logits, pred_densebox_regress, pred_centerness = self.head(features)
 
+        #pred_logits[0].mean().backward()
+        #graph = make_dot(pred_logits[0].mean(), params=dict(self.named_parameters()))
+        #graph.render('fcos')
+
+
         self.pred_logits = pred_logits
+        self.pred_densebox_regress = pred_densebox_regress
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [permute_to_N_HWA_K(x, self.num_classes) for x in pred_logits]
         pred_densebox_regress = [permute_to_N_HWA_K(x, 4) for x in pred_densebox_regress]
@@ -356,6 +364,7 @@ class FCOS(nn.Module):
         scores_all = []
         class_idxs_all = []
         level_all = []
+        anchor_all = []
 
         # Iterate over every feature level
         for box_cls_i, box_reg_i, anchors_i, centerness_i, curr_level in zip(box_cls, box_delta, anchors, centerness, torch.arange(len(self.feature_size),dtype=torch.long)):
@@ -389,9 +398,10 @@ class FCOS(nn.Module):
             scores_all.append(predicted_prob)
             class_idxs_all.append(classes_idxs)
             level_all.append(box_level_i)
+            anchor_all.append(anchors_i.get_centers())
 
-        boxes_all, scores_all, class_idxs_all, level_all = [
-            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all]
+        boxes_all, scores_all, class_idxs_all, level_all, anchor_all = [
+            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all, anchor_all]
         ]
         keep = batched_nms(boxes_all, scores_all, class_idxs_all, self.nms_threshold)
         keep = keep[: self.max_detections_per_image]
@@ -401,6 +411,7 @@ class FCOS(nn.Module):
         result.scores = scores_all[keep]
         result.pred_classes = class_idxs_all[keep]
         result.level = level_all[keep]
+        result.anchor = anchor_all[keep]
         return result
 
     def preprocess_image(self, batched_inputs):
@@ -410,6 +421,7 @@ class FCOS(nn.Module):
         images = [x["image"].to(self.device) for x in batched_inputs]
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.backbone.size_divisibility)
+        images.tensor = Variable(images.tensor, requires_grad=True)
         return images
 
 
@@ -452,8 +464,17 @@ class FCOSHead(nn.Module):
         self.bbox_pred = nn.Conv2d(in_channels, 4, kernel_size=3, stride=1, padding=1)
         self.centerness_pred = nn.Conv2d(in_channels, 1, kernel_size=3, stride=1, padding=1)
 
+        if cfg.MODEL.FCOS.CLS_TO_BOX:
+            self.sft_gamma = nn.Sequential(
+                nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1),
+                nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1)
+            )
+            self.sft_beta =  nn.Sequential(
+                nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1),
+                nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1)
+            )
         # Initialization
-        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred]:
+        for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred, self.sft_gamma, self.sft_beta]:
             for layer in modules.modules():
                 if isinstance(layer, nn.Conv2d):
                     torch.nn.init.normal_(layer.weight, mean=0, std=0.01)
@@ -488,8 +509,11 @@ class FCOSHead(nn.Module):
         for l ,feature in enumerate(features):
             cls_subnet = self.cls_subnet(feature)
             logits.append(self.cls_score(cls_subnet))
+            
             box_subnet = self.bbox_subnet(feature)
+            box_subnet = (box_subnet * self.sft_gamma(cls_subnet) + self.sft_beta(cls_subnet))
             bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(box_subnet))))
+
             if self.centerness_on_cls:
                 centerness.append(self.centerness_pred(cls_subnet))
             else:

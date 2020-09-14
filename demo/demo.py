@@ -24,6 +24,7 @@ def setup_cfg(args):
     cfg.merge_from_list(args.opts)
     # Set score_threshold for builtin models
     cfg.MODEL.RETINANET.SCORE_THRESH_TEST = args.confidence_threshold
+    cfg.MODEL.FCOS.SCORE_THRESH_TEST = args.confidence_threshold
     cfg.MODEL.ROI_HEADS.SCORE_THRESH_TEST = args.confidence_threshold
     cfg.MODEL.PANOPTIC_FPN.COMBINE.INSTANCES_CONFIDENCE_THRESH = args.confidence_threshold
     cfg.freeze()
@@ -86,7 +87,7 @@ if __name__ == "__main__":
             # use PIL, to be consistent with evaluation
             img = read_image(path, format="BGR")
             start_time = time.time()
-            predictions, visualized_output = demo.run_on_image(img)
+            predictions, visualized_output, visualized_prm = demo.run_on_image(img)
             logger.info(
                 "{}: {} in {:.2f}s".format(
                     path,
@@ -105,6 +106,12 @@ if __name__ == "__main__":
                     assert len(args.input) == 1, "Please specify a directory with args.output"
                     out_filename = args.output
                 visualized_output.save(out_filename)
+                for l in range(len(visualized_prm)):
+                    for val in range(len(visualized_prm[l])):
+
+                        out_prmname = os.path.join(args.output,
+                            (str(l)+'_'+str(val)+'_'+visualized_prm[l][val]['peak_class']+'_'+os.path.basename(path)))
+                        cv2.imwrite(out_prmname, visualized_prm[l][val]['peak_map'])
             else:
                 cv2.namedWindow(WINDOW_NAME, cv2.WINDOW_NORMAL)
                 cv2.imshow(WINDOW_NAME, visualized_output.get_image()[:, :, ::-1])
