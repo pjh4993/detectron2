@@ -151,6 +151,7 @@ _C.MODEL.FPN.FUSE_TYPE = "sum"
 _C.MODEL.FPN.PANET_BOTTOMUP = False
 _C.MODEL.FPN.TOPDOWN_EXCL = False
 _C.MODEL.FPN.REFINE_UPSAMPLE = False
+_C.MODEL.FPN.DISPLACEMENT_MAP = False
 
 
 # ---------------------------------------------------------------------------- #

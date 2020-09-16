@@ -20,7 +20,7 @@ class FPN(Backbone):
     """
 
     def __init__(
-        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False, topdown_excl = False, refine_upsample = False
+        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False, topdown_excl = False, refine_upsample = False, displacement_map = False
     ):
         """
         Args:
@@ -59,6 +59,7 @@ class FPN(Backbone):
         fpn_output_convs = []
         fpn_refine_upsample = []
         pan_up_convs = []
+        fpn_displacement_convs = []
 
         use_bias = norm == ""
         prev_weight = None
@@ -131,6 +132,7 @@ class FPN(Backbone):
         self.pan_up_convs = pan_up_convs
         self.refine_upsample = fpn_refine_upsample[::-1]
         self.top_block = top_block
+        self.displacement_map = displacement_map
         self.in_features = in_features
         self.bottom_up = bottom_up
         # Return feature names are "p<stage>", like ["p2", "p3", ..., "p6"]
@@ -139,6 +141,24 @@ class FPN(Backbone):
         if self.top_block is not None:
             for s in range(stage, stage + self.top_block.num_levels):
                 self._out_feature_strides["p{}".format(s + 1)] = 2 ** (s + 1)
+
+        if self.displacement_map is not None:
+            for idx in range(3):
+                output_norm = get_norm(norm, out_channels)
+                output_conv = Conv2d(
+                    out_channels,
+                    out_channels,
+                    kernel_size=3,
+                    stride=1,
+                    padding=1,
+                    bias=use_bias,
+                    norm=output_norm,
+                )
+                weight_init.c2_xavier_fill(output_conv)
+                self.add_module("fpn_displacement{}".format(idx), output_conv)
+                fpn_displacement_convs.append(output_conv)
+            self.fpn_displacement_convs = fpn_displacement_convs
+            self._out_feature_strides["dm"] = 1
 
         self._out_features = list(self._out_feature_strides.keys())
         self._out_feature_channels = {k: out_channels for k in self._out_features}
@@ -201,6 +221,14 @@ class FPN(Backbone):
             if top_block_in_feature is None:
                 top_block_in_feature = results[self._out_features.index(self.top_block.in_feature)]
             results.extend(self.top_block(top_block_in_feature))
+
+        if self.displacement_map is not None:
+            prev_features = results[0]
+            for block in self.fpn_displacement_convs:
+                prev_features = F.interpolate(prev_features, scale_factor=2, mode="nearest")
+                prev_features = block(prev_features)
+            results.append(prev_features)
+
         assert len(self._out_features) == len(results)
         return dict(zip(self._out_features, results))
 
@@ -305,5 +333,6 @@ def build_retinanet_resnet_fpn_backbone(cfg, input_shape: ShapeSpec):
         panet_bottomup=cfg.MODEL.FPN.PANET_BOTTOMUP,
         topdown_excl=cfg.MODEL.FPN.TOPDOWN_EXCL,
         refine_upsample=cfg.MODEL.FPN.REFINE_UPSAMPLE,
+        displacement_map=cfg.MODEL.FPN.DISPLACEMENT_MAP,
     )
     return backbone
