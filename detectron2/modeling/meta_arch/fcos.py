@@ -463,8 +463,9 @@ class FCOSHead(nn.Module):
         )
         self.bbox_pred = nn.Conv2d(in_channels, 4, kernel_size=3, stride=1, padding=1)
         self.centerness_pred = nn.Conv2d(in_channels, 1, kernel_size=3, stride=1, padding=1)
+        self.sft_affine = cfg.MODEL.FCOS.CLS_TO_BOX
 
-        if cfg.MODEL.FCOS.CLS_TO_BOX:
+        if self.sft_affine:
             self.sft_gamma = nn.Sequential(
                 nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1),
                 nn.Conv2d(in_channels, in_channels, kernel_size=1, stride=1)
@@ -524,7 +525,10 @@ class FCOSHead(nn.Module):
             logits.append(self.cls_score(cls_subnet))
             
             box_subnet = self.bbox_subnet(feature)
-            box_subnet = (box_subnet * self.sft_gamma(cls_subnet) + self.sft_beta(cls_subnet))
+
+            if self.sft_affine:
+                box_subnet = (box_subnet * self.sft_gamma(cls_subnet) + self.sft_beta(cls_subnet))
+
             bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(box_subnet))))
 
             if self.centerness_on_cls:
