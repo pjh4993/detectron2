@@ -180,8 +180,8 @@ class DefaultPredictor:
     def __init__(self, cfg):
         self.cfg = cfg.clone()  # cfg can be modified by model
         self.model = build_model(self.cfg)
-        #self.model.eval()
-        self.model.train()
+        self.model.eval()
+        #self.model.train()
         if len(cfg.DATASETS.TEST):
             self.metadata = MetadataCatalog.get(cfg.DATASETS.TEST[0])
 

@@ -20,7 +20,7 @@ class FPN(Backbone):
     """
 
     def __init__(
-        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup = False, topdown_excl = False, refine_upsample = False, displacement_map = False
+        self, bottom_up, in_features, out_channels, norm="", top_block=None, fuse_type="sum", panet_bottomup=False, topdown_excl=False, refine_upsample=False, 
     ):
         """
         Args:
@@ -105,16 +105,16 @@ class FPN(Backbone):
                 self.add_module("refine_upsample{}".format(stage), refine_conv)
                 fpn_refine_upsample.append(refine_conv)
             elif refine_upsample is False:
-                fpn_refine_upsample.append(lambda x,y:x)
+                fpn_refine_upsample.append(lambda x, y: x)
 
         if panet_bottomup:
-            panet_in_channels_per_feature = [out_channels] * (len(fpn_lateral_convs)-1)
+            panet_in_channels_per_feature = [out_channels] * (len(fpn_lateral_convs) - 1)
 
             for idx, in_channels in enumerate(panet_in_channels_per_feature):
-                up_norm = get_norm(norm,  out_channels)
+                up_norm = get_norm(norm, out_channels)
 
                 up_conv = Conv2d(
-                    in_channels, out_channels, kernel_size=3, stride=2, padding=1 ,bias=use_bias, norm=lateral_norm
+                    in_channels, out_channels, kernel_size=3, stride=2, padding=1, bias=use_bias, norm=lateral_norm
                 )
                 weight_init.c2_xavier_fill(up_conv)
                 _stage = int(math.log2(strides[idx]))
@@ -122,8 +122,7 @@ class FPN(Backbone):
 
                 pan_up_convs.append(up_conv)
 
-        
-        #stage 2. build connection for bottom up network for panet
+        # stage 2. build connection for bottom up network for panet
 
         # Place convs into top-down order (from low to high resolution)
         # to make the top-down computation in forward clearer.
@@ -132,7 +131,6 @@ class FPN(Backbone):
         self.pan_up_convs = pan_up_convs
         self.refine_upsample = fpn_refine_upsample[::-1]
         self.top_block = top_block
-        self.displacement_map = displacement_map
         self.in_features = in_features
         self.bottom_up = bottom_up
         # Return feature names are "p<stage>", like ["p2", "p3", ..., "p6"]
@@ -141,24 +139,6 @@ class FPN(Backbone):
         if self.top_block is not None:
             for s in range(stage, stage + self.top_block.num_levels):
                 self._out_feature_strides["p{}".format(s + 1)] = 2 ** (s + 1)
-
-        if self.displacement_map is not None:
-            for idx in range(3):
-                output_norm = get_norm(norm, out_channels)
-                output_conv = Conv2d(
-                    out_channels,
-                    out_channels,
-                    kernel_size=3,
-                    stride=1,
-                    padding=1,
-                    bias=use_bias,
-                    norm=output_norm,
-                )
-                weight_init.c2_xavier_fill(output_conv)
-                self.add_module("fpn_displacement{}".format(idx), output_conv)
-                fpn_displacement_convs.append(output_conv)
-            self.fpn_displacement_convs = fpn_displacement_convs
-            self._out_feature_strides["dm"] = 1
 
         self._out_features = list(self._out_feature_strides.keys())
         self._out_feature_channels = {k: out_channels for k in self._out_features}
@@ -204,7 +184,6 @@ class FPN(Backbone):
 
             results.insert(0, output_conv(prev_features))
 
-            
         if len(self.pan_up_convs):
             prev_features = results[0]
             pan_results = [prev_features]
@@ -221,13 +200,6 @@ class FPN(Backbone):
             if top_block_in_feature is None:
                 top_block_in_feature = results[self._out_features.index(self.top_block.in_feature)]
             results.extend(self.top_block(top_block_in_feature))
-
-        if self.displacement_map is not None:
-            prev_features = results[0]
-            for block in self.fpn_displacement_convs:
-                prev_features = F.interpolate(prev_features, scale_factor=2, mode="nearest")
-                prev_features = block(prev_features)
-            results.append(prev_features)
 
         assert len(self._out_features) == len(results)
         return dict(zip(self._out_features, results))
@@ -333,6 +305,5 @@ def build_retinanet_resnet_fpn_backbone(cfg, input_shape: ShapeSpec):
         panet_bottomup=cfg.MODEL.FPN.PANET_BOTTOMUP,
         topdown_excl=cfg.MODEL.FPN.TOPDOWN_EXCL,
         refine_upsample=cfg.MODEL.FPN.REFINE_UPSAMPLE,
-        displacement_map=cfg.MODEL.FPN.DISPLACEMENT_MAP,
     )
     return backbone

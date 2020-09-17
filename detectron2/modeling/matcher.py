@@ -157,7 +157,7 @@ class FCOSMatcher(object):
         """ 
         # Add -inf and +inf to first and last position in thresholds
         scale_per_level = [0] + scale_per_level + [INF]
-        self.scale_per_level = [[scale_per_level[i], scale_per_level[i+1]] for i in range(len(scale_per_level)-1)]
+        self.scale_per_level = [[scale_per_level[i], scale_per_level[-1]] for i in range(len(scale_per_level)-1)]
         self.fpn_stride = fpn_stride
         self.center_sampling_radius = sampling_radius
 
@@ -187,16 +187,18 @@ class FCOSMatcher(object):
         points = [anchor_per_level.get_centers() for anchor_per_level in anchors]
         points_all_level = torch.cat(points, dim=0)
 
-        labels, reg_targets = self.compute_targets_for_locations(
+        labels, reg_targets, target_id = self.compute_targets_for_locations(
             points_all_level, gt_instances, expanded_object_sizes_of_interest
         )
 
         for i in range(len(labels)):
             labels[i] = torch.split(labels[i], num_points_per_level, dim=0)
             reg_targets[i] = torch.split(reg_targets[i], num_points_per_level, dim=0)
+            target_id[i] = torch.split(target_id[i], num_points_per_level, dim=0)
 
         labels_level_first = []
         reg_targets_level_first = []
+        target_id_level_first = []
         for level in range(len(points)):
             labels_level_first.append(
                 torch.cat([labels_per_im[level] for labels_per_im in labels], dim=0)
@@ -210,7 +212,12 @@ class FCOSMatcher(object):
             reg_targets_per_level /= self.fpn_stride[level]
             reg_targets_level_first.append(reg_targets_per_level)
 
-        return labels_level_first, reg_targets_level_first
+            target_id_level_first.append(
+                torch.cat([target_id_per_im[level] for target_id_per_im in target_id ])
+            )
+
+
+        return labels_level_first, reg_targets_level_first, target_id_level_first
 
     def get_sample_region(self, gt, strides, num_points_per, gt_xs, gt_ys, radius=1.0):
         '''
@@ -263,11 +270,13 @@ class FCOSMatcher(object):
         xs, ys = locations[:, 0], locations[:, 1]
         labels = []
         reg_targets = []
+        reg_id = []
         for im_i in range(len(gt_instances)):
             targets_per_im = gt_instances[im_i]
             bboxes = targets_per_im.gt_boxes.tensor
             labels_per_im = targets_per_im.gt_classes
             area = targets_per_im.gt_boxes.area()
+            instance_id = torch.arange(area.shape[0])
 
             l = xs[:, None] - bboxes[:, 0][None]
             t = ys[:, None] - bboxes[:, 1][None]
@@ -296,18 +305,24 @@ class FCOSMatcher(object):
             locations_to_gt_area[is_in_boxes == 0] = INF
             locations_to_gt_area[is_cared_in_the_level == 0] = INF
 
+            locations_to_gt_id = instance_id[None].repeat(len(locations), 1)
+            locations_to_gt_id[is_in_boxes == 0] = -1
+            locations_to_gt_id[is_cared_in_the_level == 0] = -1
+
             # if there are still more than one objects for a location,
             # we choose the one with minimal area
             locations_to_min_area, locations_to_gt_inds = locations_to_gt_area.min(dim=1)
 
             reg_targets_per_im = reg_targets_per_im[range(len(locations)), locations_to_gt_inds]
+            locations_to_gt_id = locations_to_gt_id[range(len(locations)), locations_to_gt_inds]
             labels_per_im = labels_per_im[locations_to_gt_inds]
             labels_per_im[locations_to_min_area == INF] = -1
 
             labels.append(labels_per_im)
             reg_targets.append(reg_targets_per_im)
+            reg_id.append(locations_to_gt_id)
 
-        return labels, reg_targets
+        return labels, reg_targets, reg_id
 
 
 

@@ -5,9 +5,10 @@ from torch import nn
 
 
 class IOULoss(nn.Module):
-    def __init__(self, loss_type="iou"):
+    def __init__(self, loss_type="iou", reduction="sum"):
         super(IOULoss, self).__init__()
         self.loss_type = loss_type
+        self.reduction = reduction
 
     def forward(self, pred, target, weight=None):
         pred_left = pred[:, 0]
@@ -45,7 +46,10 @@ class IOULoss(nn.Module):
             raise NotImplementedError
 
         if weight is not None and weight.sum() > 0:
-            return (losses * weight).sum()
-        else:
+            losses = (losses * weight)
+        
+        if self.reduction == "sum":
             assert losses.numel() != 0
             return losses.sum()
+        else:
+            return losses

@@ -46,7 +46,7 @@ class VisualizationDemo(object):
         """
         vis_output = None
         predictions = self.predictor(image)
-        aggregation, class_response_map, valid_peak, peak_response, box_response = self.predictor.model.prm()
+        #aggregation, class_response_map, valid_peak, peak_response, box_response = self.predictor.model.prm()
         #self.predictor.model.prm()
         # Convert image from OpenCV BGR format to Matplotlib RGB format.
         image = image[:, :, ::-1]
@@ -64,10 +64,10 @@ class VisualizationDemo(object):
             if "instances" in predictions:
                 instances = predictions["instances"].to(self.cpu_device)
                 vis_output = visualizer.draw_instance_predictions(predictions=instances)
-        vis_prm_out = visualizer.draw_prm_heatmap(valid_peak=valid_peak, peak_response=peak_response, box_response=box_response)
+        #vis_prm_out = visualizer.draw_prm_heatmap(valid_peak=valid_peak, peak_response=peak_response, box_response=box_response)
 
 
-        return predictions, vis_output, vis_prm_out
+        return predictions, vis_output, #vis_prm_out
 
     def _frame_from_video(self, video):
         while video.isOpened():

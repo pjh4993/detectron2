@@ -10,7 +10,7 @@ from torch.autograd import Variable
 
 
 from detectron2.data.detection_utils import convert_image_to_rgb
-from detectron2.layers import ShapeSpec, batched_nms, cat, IOULoss, Scale
+from detectron2.layers import ShapeSpec, batched_nms, cat, IOULoss, Scale, Scale_grouping
 from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
 from detectron2.utils.events import get_event_storage
 
@@ -154,12 +154,11 @@ class FCOS(nn.Module):
         self.image_tensor = images.tensor
         features = self.backbone(images.tensor)
         features = [features[f] for f in self.in_features]
-
         self.feature_size = [f.shape[2] * f.shape[3] for f in features]
 
         anchors = self.anchor_generator(features)
-        pred_logits, pred_densebox_regress, pred_centerness = self.head(features)
 
+        pred_logits, pred_densebox_regress, pred_centerness = self.head(features)
         #pred_logits[0].mean().backward()
         #graph = make_dot(pred_logits[0].mean(), params=dict(self.named_parameters()))
         #graph.render('fcos')
@@ -176,8 +175,8 @@ class FCOS(nn.Module):
         if self.training and self.prm is False:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-            gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
-            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness)
+            gt_labels, gt_boxes, gt_id = self.label_anchors(anchors, gt_instances)
+            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_id)
 
             if self.vis_period > 0:
                 storage = get_event_storage()
@@ -200,7 +199,7 @@ class FCOS(nn.Module):
                 processed_results.append({"instances": r})
             return processed_results
 
-    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness):
+    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_id):
         """
         Args:
             anchors (list[Boxes]): a list of #feature level Boxes
@@ -225,6 +224,7 @@ class FCOS(nn.Module):
         labels_flatten = []
         reg_targets_flatten = []
         weight_flatten = []
+        reg_id_flatten = []
 
         for l in range(len(gt_labels)):
            box_cls_flatten.append(pred_logits[l].reshape(-1, self.num_classes))
@@ -232,16 +232,19 @@ class FCOS(nn.Module):
            labels_flatten.append(gt_labels[l])
            reg_targets_flatten.append(gt_boxes[l])
            centerness_flatten.append(pred_centerness[l].reshape(-1,1))
+           reg_id_flatten.append(gt_id[l])
 
         box_cls_flatten = torch.cat(box_cls_flatten, dim=0)
         box_regression_flatten = torch.cat(box_regression_flatten, dim=0)
         centerness_flatten = torch.cat(centerness_flatten, dim=0)
         labels_flatten = torch.cat(labels_flatten, dim=0)
         reg_targets_flatten = torch.cat(reg_targets_flatten, dim=0)
+        reg_id_flatten = torch.cat(reg_id_flatten, dim=0).to(box_cls_flatten.device)
 
         pos_inds = torch.nonzero(labels_flatten > 0).squeeze(1)
         box_regression_flatten = box_regression_flatten[pos_inds]
         reg_targets_flatten = reg_targets_flatten[pos_inds]
+        reg_id_pos_flatten = reg_id_flatten[pos_inds]
         centerness_flatten = centerness_flatten[pos_inds]
 
         num_pos_anchors = pos_inds.numel()
@@ -262,7 +265,20 @@ class FCOS(nn.Module):
             gamma=self.focal_loss_gamma,
             reduction="sum",
         ) / num_pos_anchors
+        """
 
+        instance_mask = [reg_id_flatten == _id for _id in torch.unique(reg_id_flatten)]
+
+        loss_cls = sigmoid_focal_loss_jit(
+            box_cls_flatten,
+            gt_labels_target.to(pred_logits[0].dtype),
+            alpha=self.focal_loss_alpha,
+            gamma=self.focal_loss_gamma,
+        ) 
+
+        loss_cls = sum([(loss_cls * mask.unsqueeze(1)).mean() for mask in instance_mask ])
+
+        """
         if pos_inds.numel() > 0:
             centerness_targets = self.compute_centerness(reg_targets_flatten)
             sum_centerness_targets = centerness_targets.sum()
@@ -278,10 +294,36 @@ class FCOS(nn.Module):
                 centerness_targets
             ) / num_pos_anchors
 
+            """
+            if pos_inds.numel() > 0:
+
+                instance_mask = [reg_id_flatten == _id for _id in torch.unique(reg_id_pos_flatten)]
+
+                centerness_targets = self.compute_centerness(reg_targets_flatten)
+                sum_centerness_targets = centerness_targets.sum()
+
+                loss_box_reg = IOULoss(loss_type="giou",reduction=None)(
+                    box_regression_flatten,
+                    reg_targets_flatten,
+                    centerness_targets 
+                )
+                loss_box_reg = sum([(loss_box_reg * mask.unsqueeze(1)).mean() for mask in instance_mask ])
+
+                loss_centerness = nn.BCEWithLogitsLoss()(
+                    centerness_flatten.squeeze(),
+                    centerness_targets
+                )
+                loss_centerness = sum([(loss_centerness * mask.unsqueeze(1)).mean() for mask in instance_mask ])
+            """
         else:
             loss_box_reg = box_regression_flatten.sum()
             loss_centerness = centerness_flatten.sum()
 
+        """
+        loss_cls = loss_cls * 1e4
+        loss_box_reg = loss_box_reg * 1e3
+        loss_centerness = loss_centerness * 1e3
+        """
         return {
             "loss_cls": loss_cls ,
             "loss_box_reg": loss_box_reg ,
@@ -317,9 +359,9 @@ class FCOS(nn.Module):
         """
         #anchors = Boxes.cat(anchors)  # Rx4
 
-        gt_labels, matched_gt_boxes = self.anchor_matcher(gt_instances, anchors)
+        gt_labels, matched_gt_boxes, gt_id = self.anchor_matcher(gt_instances, anchors)
 
-        return gt_labels, matched_gt_boxes 
+        return gt_labels, matched_gt_boxes , gt_id
 
     def inference(self, anchors, pred_logits, pred_densebox_regress, pred_centerness, image_sizes):
         """
@@ -485,7 +527,6 @@ class FCOSHead(nn.Module):
                         torch.nn.init.normal_(layer.weight, mean=0, std=0.01)
                         torch.nn.init.constant_(layer.bias, 0)
 
-
         # Initialization
         for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred]:
             for layer in modules.modules():
@@ -498,7 +539,8 @@ class FCOSHead(nn.Module):
         bias_value = -(math.log((1 - prior_prob) / prior_prob))
         torch.nn.init.constant_(self.cls_score.bias, bias_value)
 
-        self.scales = nn.ModuleList([Scale(init_value=1.0) for _ in range(5)])
+        #self.scales = nn.ModuleList([Scale(init_value=1.0) for _ in range(5)])
+        self.scales = nn.ModuleList([Scale_grouping(in_channels, 1 ,init_value=1.0) for _ in range(5)])
 
     def forward(self, features):
         """
@@ -529,10 +571,12 @@ class FCOSHead(nn.Module):
             if self.sft_affine:
                 box_subnet = (box_subnet * self.sft_gamma(cls_subnet) + self.sft_beta(cls_subnet))
 
-            bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(box_subnet))))
+            #bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(box_subnet))))
+            bbox_reg.append(F.relu(self.scales[l](box_subnet) * self.bbox_pred(box_subnet)))
 
             if self.centerness_on_cls:
                 centerness.append(self.centerness_pred(cls_subnet))
             else:
                 centerness.append(self.centerness_pred(box_subnet))
+	
         return logits, bbox_reg, centerness

@@ -10,7 +10,7 @@ from .wrappers import BatchNorm2d, Conv2d, ConvTranspose2d, cat, interpolate, Li
 from .blocks import CNNBlockBase
 from .aspp import ASPP
 from .iou_loss import IOULoss
-from .scale import Scale
+from .scale import Scale, Scale_grouping
 from .relative_attention import AttentionConv
 from .peak_stimulation import peak_stimulation_ori, peak_stimulation_ori_gt
 from .peak_backprop import pr_conv2d

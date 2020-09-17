@@ -463,7 +463,7 @@ _C.MODEL.FCOS = CN()
 _C.MODEL.FCOS.NUM_CLASSES = 80
 
 _C.MODEL.FCOS.IN_FEATURES = ["p3", "p4", "p5", "p6", "p7"]
-
+ 
 # Convolutions to use in the cls and bbox tower
 # NOTE: this doesn't include the last conv for logits
 _C.MODEL.FCOS.NUM_CONVS = 4
@@ -496,6 +496,23 @@ _C.MODEL.PRM = CN()
 _C.MODEL.PRM.ATTACH = False
 _C.MODEL.PRM.WIN_SIZE = 3
 _C.MODEL.PRM.ENABLE_BACK_PROP = True
+
+# ---------------------------------------------------------------------------- #
+# IRNet configure
+# ---------------------------------------------------------------------------- #
+
+_C.MODEL.IRNET = CN()
+_C.MODEL.IRNET.NUM_CLASSES = 1
+_C.MODEL.IRNET.IN_FEATURES = ["stem", "res2", "res3", "res4", "res5"]
+_C.MODEL.IRNET.DISP_HEAD = []
+_C.MODEL.IRNET.CLS_BND_HEAD = []
+_C.MODEL.IRNET.MODE = "classification"
+_C.MODEL.IRNET.THRESHOLD = 0.7
+_C.MODEL.IRNET.FOCAL_LOSS_GAMMA = 2.0
+_C.MODEL.IRNET.FOCAL_LOSS_ALPHA = 0.25
+
+#IRNet res5_dilation = 0
+
 
 # ---------------------------------------------------------------------------- #
 # ResNe[X]t options (ResNets = {ResNet, ResNeXt}

@@ -594,6 +594,7 @@ def build_resnet_backbone(cfg, input_shape):
     deform_on_per_stage = cfg.MODEL.RESNETS.DEFORM_ON_PER_STAGE
     deform_modulated    = cfg.MODEL.RESNETS.DEFORM_MODULATED
     deform_num_groups   = cfg.MODEL.RESNETS.DEFORM_NUM_GROUPS
+    meta_arch           = cfg.MODEL.META_ARCHITECTURE
     # fmt: on
     assert res5_dilation in {1, 2}, "res5_dilation cannot be {}.".format(res5_dilation)
 
@@ -617,11 +618,11 @@ def build_resnet_backbone(cfg, input_shape):
 
     # Avoid creating variables without gradients
     # It consumes extra memory and may cause allreduce to fail
-    out_stage_idx = [{"res2": 2, "res3": 3, "res4": 4, "res5": 5}[f] for f in out_features]
+    out_stage_idx = [{"stem": 1, "res2": 2, "res3": 3, "res4": 4, "res5": 5}[f] for f in out_features]
     max_stage_idx = max(out_stage_idx)
     for idx, stage_idx in enumerate(range(2, max_stage_idx + 1)):
         dilation = res5_dilation if stage_idx == 5 else 1
-        first_stride = 1 if idx == 0 or (stage_idx == 5 and dilation == 2) else 2
+        first_stride = 1 if idx == 0 or (stage_idx == 5 and (dilation == 2 or meta_arch == "IRNET")) else 2
         stage_kargs = {
             "num_blocks": num_blocks_per_stage[idx],
             "stride_per_block": [first_stride] + [1] * (num_blocks_per_stage[idx] - 1),
