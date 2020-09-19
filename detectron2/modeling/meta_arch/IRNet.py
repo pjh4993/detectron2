@@ -60,6 +60,9 @@ class IRNet(nn.Module):
         self.threshold                = cfg.MODEL.IRNET.THRESHOLD
         self.focal_loss_alpha         = cfg.MODEL.IRNET.FOCAL_LOSS_ALPHA
         self.focal_loss_gamma         = cfg.MODEL.IRNET.FOCAL_LOSS_GAMMA
+        self.cls_feature              = cfg.MODEL.IRNET.CLS_FEATURE
+        self.fg_threshold             = cfg.MODEL.IRNET.FORE_GROUND_THRESHOLD
+        self.bg_threshold             = cfg.MODEL.IRNET.BACK_GROUND_THRESHOLD
         """
         # Loss parameters:
         self.focal_loss_alpha         = cfg.MODEL.IRNET.FOCAL_LOSS_ALPHA
@@ -81,12 +84,14 @@ class IRNet(nn.Module):
             self.num_classes,
             kernel_size=1,
             stride=1,
+            padding=0,
             bias=False)
         weight_init.c2_xavier_fill(self.classification_head)
 
         if self.mode != "classification":
             self.displacement_head = IRNetHead(cfg, feature_shapes, cfg.MODEL.IRNET.DISP_HEAD)
             self.class_boundary_head = IRNetHead(cfg, feature_shapes, cfg.MODEL.IRNET.CLR_BND_HEAD)
+            self.peak_response_head = lambda x: x
 
         # Matching and loss
 
@@ -102,9 +107,9 @@ class IRNet(nn.Module):
     def forward(self, batched_inputs):
         images = self.preprocess_image(batched_inputs)
         features = self.backbone(images.tensor)
-        features = [features[f] for f in self.in_features]
+        features = {f : features[f] for f in self.in_features}
         if self.mode == "classification":
-            features = features[0]
+            features = features[self.cls_feature]
             N, C, _, _ = features.shape
             pred_logits = self.classification_head(F.adaptive_avg_pool2d(features, (1,1)))
             pred_logits = pred_logits.flatten()
@@ -125,7 +130,11 @@ class IRNet(nn.Module):
                     storage = get_event_storage()
                     if storage.iter % self.vis_period == 0:
                         pred_cls = pred_logits.sigmoid() > self.threshold
-                        storage.put_scalar("acc",gt_labels[pred_cls].sum() / gt_labels.nonzero().shape[0])
+                        precision = gt_labels[pred_cls].sum() / (pred_cls.nonzero().shape[0] + 1e-5)
+                        recall = gt_labels[pred_cls].sum() / gt_labels.nonzero().shape[0]
+                        storage.put_scalar("precision", precision)
+                        storage.put_scalar("recall", recall)
+                        storage.put_scalar("f1 score", 2 * precision * recall / (precision + recall))
 
                 return {
                     "loss_cls" : loss
@@ -133,12 +142,26 @@ class IRNet(nn.Module):
             else:
                 results = []
                 for idx, image_size in enumerate(images.image_sizes):
-                    result = Instances(image_size)
-                    result.pred_classes = (pred_logits[idx].sigmoid() > self.threshold).nonzero().flatten()
+                    pred_classes = (pred_logits.sigmoid() > self.threshold).nonzero().flatten()
+                    result = []
+                    for idx in pred_classes:
+                        result.append({"category_id" : idx})
                     results.append({"classification" : result})
                 return results
                 
         elif self.mode == "IRNet":
+            class_response_map = self.classification_head(features[self.cls_feature]).sigmoid()
+            peak_response_map = self.peak_response_head(class_response_map)
+            displacement_map = self.displacement_head(features)
+            class_boundary_map = self.class_boundary_head(features)
+
+            #mask class response map with fg, bg threshold
+            fg_CAM = class_response_map * (class_response_map > self.fg_threshold)
+            bg_CAM = class_response_map * (class_response_map < self.bg_threshold)
+
+
+
+
             return 1
 
     def visualize_training(self, batched_inputs, results):

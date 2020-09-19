@@ -125,7 +125,7 @@ class COCOEvaluator(DatasetEvaluator):
             if "proposals" in output:
                 prediction["proposals"] = output["proposals"].to(self._cpu_device)
             if "classification" in output:
-                prediction["classification"] = output["classification"].to(self._cpu_device)
+                prediction['classification'] = [{ok : ov.to(self._cpu_device) for ok , ov in out.items()} for out in output['classification']]
             self._predictions.append(prediction)
 
     def evaluate(self):
@@ -154,8 +154,67 @@ class COCOEvaluator(DatasetEvaluator):
             self._eval_box_proposals(predictions)
         if "instances" in predictions[0]:
             self._eval_predictions(set(self._tasks), predictions)
+        if "classification" in predictions[0]:
+            self._eval_classification(predictions)
         # Copy so the caller can do whatever with results
         return copy.deepcopy(self._results)
+    
+    def _eval_classification(self, predictions):
+        self._logger.info("Preparing results for COCO format ...")
+        #coco_results = list(itertools.chain(*[x["classification"] for x in predictions]))
+        coco_results = [x["classification"] for x in predictions]
+
+        # unmap the category ids for COCO
+        if hasattr(self._metadata, "thing_dataset_id_to_contiguous_id"):
+            reverse_id_mapping = {
+                v: k for k, v in self._metadata.thing_dataset_id_to_contiguous_id.items()
+            }
+            for result in coco_results:
+                for inst in result:
+                    category_id = inst["category_id"].item()
+                    assert (
+                        category_id in reverse_id_mapping
+                    ), "A prediction has category_id={}, which is not available in the dataset.".format(
+                        category_id
+                    )
+                    inst["category_id"] = reverse_id_mapping[category_id]
+
+        if self._output_dir:
+            file_path = os.path.join(self._output_dir, "coco_instances_results.json")
+            self._logger.info("Saving results to {}".format(file_path))
+            with PathManager.open(file_path, "w") as f:
+                f.write(json.dumps(coco_results))
+                f.flush()
+
+        if not self._do_evaluation:
+            self._logger.info("Annotations are not available for evaluation.")
+            return
+
+        self._logger.info(
+            "Evaluating predictions with {} COCO API...".format(
+                "unofficial" if self._use_fast_impl else "official"
+            )
+        )
+
+        """
+        coco_eval = (
+            _evaluate_predictions_on_coco(
+                self._coco_api,
+                coco_results,
+                task,
+                kpt_oks_sigmas=self._kpt_oks_sigmas,
+                use_fast_impl=self._use_fast_impl,
+            )
+            if len(coco_results) > 0
+            else None  # cocoapi does not handle empty results very well
+        )
+
+        res = self._derive_coco_results(
+            coco_eval, task, class_names=self._metadata.get("thing_classes")
+        )
+        self._results[task] = res
+        """
+
 
     def _eval_predictions(self, tasks, predictions):
         """
@@ -526,6 +585,9 @@ def _evaluate_predictions_on_coco(
         # We remove the bbox field to let mask AP use mask area.
         for c in coco_results:
             c.pop("bbox", None)
+
+    if iou_type == "classification":
+        pass
 
     coco_dt = coco_gt.loadRes(coco_results)
     use_fast_impl = False
