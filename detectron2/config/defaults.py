@@ -498,6 +498,45 @@ _C.MODEL.PRM.WIN_SIZE = 3
 _C.MODEL.PRM.ENABLE_BACK_PROP = True
 
 # ---------------------------------------------------------------------------- #
+# RetinaNet Head
+# ---------------------------------------------------------------------------- #
+_C.MODEL.MPFCOS = CN()
+
+# This is the number of foreground classes.
+_C.MODEL.MPFCOS.NUM_CLASSES = 80
+
+_C.MODEL.MPFCOS.IN_FEATURES = ["p3", "p4", "p5", "p6", "p7"]
+ 
+# Convolutions to use in the cls and bbox tower
+# NOTE: this doesn't include the last conv for logits
+_C.MODEL.MPFCOS.NUM_CONVS = 4
+
+_C.MODEL.MPFCOS.SCALE_PER_LEVEL = [64, 128,256, 512]
+_C.MODEL.MPFCOS.FPN_STRIDE = [8,16,32,64,128]
+
+# Prior prob for rare case (i.e. foreground) at the beginning of training.
+# This is used to set the bias for the logits layer of the classifier subnet.
+# This improves training stability in the case of heavy class imbalance.
+_C.MODEL.MPFCOS.PRIOR_PROB = 0.01
+_C.MODEL.MPFCOS.EMB_SIZE = 1
+
+
+# Inference cls score threshold, only anchors with score > INFERENCE_TH are
+# considered for inference (to improve speed)
+_C.MODEL.MPFCOS.SCORE_THRESH_TEST = 0.05
+_C.MODEL.MPFCOS.TOPK_CANDIDATES_TEST = 1000
+_C.MODEL.MPFCOS.NMS_THRESH_TEST = 0.5
+
+# Weights on (dx, dy, dw, dh) for normalizing Retinanet anchor regression targets
+_C.MODEL.MPFCOS.BBOX_REG_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
+
+# Loss parameters
+_C.MODEL.MPFCOS.FOCAL_LOSS_GAMMA = 2.0
+_C.MODEL.MPFCOS.FOCAL_LOSS_ALPHA = 0.25
+_C.MODEL.MPFCOS.SMOOTH_L1_LOSS_BETA = 0.1
+_C.MODEL.MPFCOS.CLS_TO_BOX = False
+
+# ---------------------------------------------------------------------------- #
 # IRNet configure
 # ---------------------------------------------------------------------------- #
 

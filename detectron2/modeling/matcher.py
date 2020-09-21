@@ -157,7 +157,7 @@ class FCOSMatcher(object):
         """ 
         # Add -inf and +inf to first and last position in thresholds
         scale_per_level = [0] + scale_per_level + [INF]
-        self.scale_per_level = [[scale_per_level[i], scale_per_level[-1]] for i in range(len(scale_per_level)-1)]
+        self.scale_per_level = [[scale_per_level[i], scale_per_level[i+1]] for i in range(len(scale_per_level)-1)]
         self.fpn_stride = fpn_stride
         self.center_sampling_radius = sampling_radius
 

@@ -10,6 +10,7 @@ from .rcnn import GeneralizedRCNN, ProposalNetwork
 from .retinanet import RetinaNet
 from .fcos import FCOS
 from .IRNet import IRNet
+#from .mpfcos import MPFCOS
 from .semantic_seg import SEM_SEG_HEADS_REGISTRY, SemanticSegmentor, build_sem_seg_head
 
 

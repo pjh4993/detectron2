@@ -9,7 +9,7 @@ MODEL:
   FPN:
     REFINE_UPSAMPLE: False
 DATASETS:
-  TRAIN: ("coco_2017_train",)
+  TRAIN: ("coco_2017_val",)
   TEST: ("coco_2017_val",)
 
 
