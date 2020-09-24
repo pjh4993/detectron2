@@ -1,29 +1,31 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
-import math
+import itertools
+import logging
+from typing import Dict, List, Optional, Tuple, Union
+import torch
 import numpy as np
-from typing import List
 import torch
 from fvcore.nn import sigmoid_focal_loss_jit, smooth_l1_loss
 from torch import nn
 from torch.nn import functional as F
 from torch.autograd import Variable
+import math
 
 
-from detectron2.data.detection_utils import convert_image_to_rgb
-from detectron2.layers import ShapeSpec, batched_nms, cat, IOULoss, Scale, Scale_grouping
-from detectron2.structures import Boxes, ImageList, Instances, pairwise_iou
+from detectron2.layers import ShapeSpec, batched_nms_rotated, batched_nms, cat, IOULoss, Scale
+from detectron2.structures import Instances, RotatedBoxes, pairwise_iou_rotated, Boxes, ImageList
+from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.utils.events import get_event_storage
+from detectron2.data.detection_utils import convert_image_to_rgb
 
-from ..anchor_generator import build_anchor_generator
-from ..backbone import build_backbone
-from ..box_regression import Box2BoxTransform
-from ..matcher import FCOSMatcher
 from ..postprocessing import detector_postprocess
-from .build import META_ARCH_REGISTRY
-import time
-from torchviz import make_dot
+from ..matcher import FCOSMatcher
+from ..anchor_generator import build_anchor_generator
+from ..box_regression import Box2BoxTransformRotated, Box2BoxTransform
+from .build import PROPOSAL_GENERATOR_REGISTRY
+from .rpn import RPN
 
-__all__ = ["FCOS"]
+logger = logging.getLogger(__name__)
 
 
 def permute_to_N_HWA_K(tensor, K):
@@ -37,14 +39,13 @@ def permute_to_N_HWA_K(tensor, K):
     tensor = tensor.reshape(N, -1, K)  # Size=(N,HWA,K)
     return tensor
 
-
-@META_ARCH_REGISTRY.register()
-class FCOS(nn.Module):
+@PROPOSAL_GENERATOR_REGISTRY.register()
+class FCOSRPN(nn.Module):
     """
-    Implement FCOS in :paper:`FCOS`.
+    FCOS Region Proposal Network described in :paper:`FCOS`.
     """
 
-    def __init__(self, cfg):
+    def __init__(self, cfg, input_shape):
         super().__init__()
         # fmt: off
         self.num_classes              = cfg.MODEL.FCOS.NUM_CLASSES
@@ -63,10 +64,7 @@ class FCOS(nn.Module):
         self.input_format             = cfg.INPUT.FORMAT
         # fmt: on
  
-        self.backbone = build_backbone(cfg)
-
-        backbone_shape = self.backbone.output_shape()
-        feature_shapes = [backbone_shape[f] for f in self.in_features]
+        feature_shapes = [input_shape[f] for f in self.in_features]
         self.head = FCOSHead(cfg, feature_shapes)
         self.anchor_generator = build_anchor_generator(cfg, feature_shapes)
 
@@ -79,19 +77,37 @@ class FCOS(nn.Module):
         self.register_buffer("pixel_mean", torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(-1, 1, 1))
         self.register_buffer("pixel_std", torch.Tensor(cfg.MODEL.PIXEL_STD).view(-1, 1, 1))
 
-        """
-        In Detectron1, loss is normalized by number of foreground samples in the batch.
-        When batch size is 1 per GPU, #foreground has a large variance and
-        using it lead to lower performance. Here we maintain an EMA of #foreground to
-        stabilize the normalizer.
-        """
-        self.loss_normalizer = 100  # initialize with any reasonable #fg that's not too small
-        self.loss_normalizer_momentum = 0.9
+        #need to change here / check what happens at init stage
 
-    @property
-    def device(self):
-        return self.pixel_mean.device
+    """
+    @classmethod
+    def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
+        ret = {
+            "in_features": in_features,
+            "min_box_size": cfg.MODEL.PROPOSAL_GENERATOR.MIN_SIZE,
+            "nms_thresh": cfg.MODEL.RPN.NMS_THRESH,
+            "batch_size_per_image": cfg.MODEL.RPN.BATCH_SIZE_PER_IMAGE,
+            "positive_fraction": cfg.MODEL.RPN.POSITIVE_FRACTION,
+            "loss_weight": {
+                "loss_rpn_cls": cfg.MODEL.RPN.LOSS_WEIGHT,
+                "loss_rpn_loc": cfg.MODEL.RPN.BBOX_REG_LOSS_WEIGHT * cfg.MODEL.RPN.LOSS_WEIGHT,
+            },
+            "anchor_boundary_thresh": cfg.MODEL.RPN.BOUNDARY_THRESH,
+            "box2box_transform": Box2BoxTransform(weights=cfg.MODEL.RPN.BBOX_REG_WEIGHTS, fpn_stride=cfg.MODEL.FCOS.FPN_STRIDE),
+            "box_reg_loss_type": cfg.MODEL.RPN.BBOX_REG_LOSS_TYPE,
+            "smooth_l1_beta": cfg.MODEL.RPN.SMOOTH_L1_BETA,
+        }
 
+        ret["pre_nms_topk"] = (cfg.MODEL.RPN.PRE_NMS_TOPK_TRAIN, cfg.MODEL.RPN.PRE_NMS_TOPK_TEST)
+        ret["post_nms_topk"] = (cfg.MODEL.RPN.POST_NMS_TOPK_TRAIN, cfg.MODEL.RPN.POST_NMS_TOPK_TEST)
+
+        ret["anchor_generator"] = build_anchor_generator(cfg, [input_shape[f] for f in in_features])
+        ret["anchor_matcher"] = FCOSMatcher(
+            cfg.MODEL.FCOS.SCALE_PER_LEVEL, cfg.MODEL.FCOS.FPN_STRIDE, 1.5
+        )
+        ret["head"] = FCOSHead(cfg, [input_shape[f] for f in in_features])
+        return ret
+    """
     def visualize_training(self, batched_inputs, results):
         """
         A function used to visualize ground truth images and final network predictions.
@@ -117,54 +133,59 @@ class FCOS(nn.Module):
         v_gt = v_gt.overlay_instances(boxes=batched_inputs[image_index]["instances"].gt_boxes)
         anno_img = v_gt.get_image()
         processed_results = detector_postprocess(results[image_index], img.shape[0], img.shape[1])
-        predicted_boxes = processed_results.pred_boxes.tensor.detach().cpu().numpy()
+        predicted_boxes = processed_results.proposal_boxes.tensor.detach().cpu().numpy()
 
         v_pred = Visualizer(img, None)
         v_pred = v_pred.overlay_instances(boxes=predicted_boxes[0:max_boxes])
         prop_img = v_pred.get_image()
         vis_img = np.vstack((anno_img, prop_img))
         vis_img = vis_img.transpose(2, 0, 1)
-        vis_name = f"Top: GT bounding boxes; Bottom: {max_boxes} Highest Scoring Results"
+        vis_name = f"FCOSSMP  :  Top: GT bounding boxes; Bottom: {max_boxes} Highest Scoring Results"
         storage.put_image(vis_name, vis_img)
-    
-    def response_maps(self):
-        return self.pred_logits, self.pred_densebox_regress ,self.image_tensor
 
+    @property
+    def device(self):
+        return self.pixel_mean.device
 
-    def forward(self, batched_inputs):
+    def preprocess_image(self, batched_inputs):
+        """
+        Normalize, pad and batch the input images.
+        """
+        images = [x["image"].to(self.device) for x in batched_inputs]
+        images = [(x - self.pixel_mean) / self.pixel_std for x in images]
+        #images = ImageList.from_tensors(images, self.backbone.size_divisibility)
+        return images
+
+    def forward(
+        self,
+        batched_inputs,
+        images: ImageList,
+        features: Dict[str, torch.Tensor],
+        gt_instances: Optional[List[Instances]] = None,
+    ):
         """
         Args:
-            batched_inputs: a list, batched outputs of :class:`DatasetMapper` .
-                Each item in the list contains the inputs for one image.
-                For now, each item in the list is a dict that contains:
+            images (ImageList): input images of length `N`
+            features (dict[str, Tensor]): input data as a mapping from feature
+                map name to tensor. Axis 0 represents the number of images `N` in
+                the input data; axes 1-3 are channels, height, and width, which may
+                vary between feature maps (e.g., if a feature pyramid is used).
+            gt_instances (list[Instances], optional): a length `N` list of `Instances`s.
+                Each `Instances` stores ground-truth instances for the corresponding image.
 
-                * image: Tensor, image in (C, H, W) format.
-                * instances: Instances
-
-                Other information that's included in the original dicts, such as:
-
-                * "height", "width" (int): the output resolution of the model, used in inference.
-                  See :meth:`postprocess` for details.
         Returns:
-            dict[str: Tensor]:
-                mapping from a named loss to a tensor storing the loss. Used during training only.
+            proposals: list[Instances]: contains fields "proposal_boxes", "objectness_logits"
+            loss: dict[Tensor] or None
         """
-        images = self.preprocess_image(batched_inputs)
-        self.image_tensor = images.tensor
-        features = self.backbone(images.tensor)
+
+        #images_ = self.preprocess_image(batched_inputs)
+
         features = [features[f] for f in self.in_features]
         self.feature_size = [f.shape[2] * f.shape[3] for f in features]
-
         anchors = self.anchor_generator(features)
 
         pred_logits, pred_densebox_regress, pred_centerness = self.head(features)
-        #pred_logits[0].mean().backward()
-        #graph = make_dot(pred_logits[0].mean(), params=dict(self.named_parameters()))
-        #graph.render('fcos')
 
-
-        self.pred_logits = pred_logits
-        self.pred_densebox_regress = pred_densebox_regress
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [permute_to_N_HWA_K(x, self.num_classes) for x in pred_logits]
         pred_densebox_regress = [permute_to_N_HWA_K(x, 4) for x in pred_densebox_regress]
@@ -172,11 +193,10 @@ class FCOS(nn.Module):
         self.feature_num_per_level = [[features[i].shape[2] ,features[i].shape[3]] for i in range(len(features))]
 
         if self.training:
-            assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
-            gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-            gt_labels, gt_boxes, gt_id = self.label_anchors(anchors, gt_instances)
-            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_id)
-
+            assert gt_instances is not None, "Instance annotations are missing in training!"
+            gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
+            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness)
+            # images.image_sizes might not exist
             if self.vis_period > 0:
                 storage = get_event_storage()
                 if storage.iter % self.vis_period == 0:
@@ -185,20 +205,23 @@ class FCOS(nn.Module):
                     )
                     self.visualize_training(batched_inputs, results)
 
-            return losses
         else:
-            results = self.inference(anchors, pred_logits, pred_densebox_regress, pred_centerness, images.image_sizes)
-            processed_results = []
-            for results_per_image, input_per_image, image_size in zip(
-                results, batched_inputs, images.image_sizes
-            ):
-                height = input_per_image.get("height", image_size[0])
-                width = input_per_image.get("width", image_size[1])
-                r = detector_postprocess(results_per_image, height, width)
-                processed_results.append({"instances": r})
-            return processed_results
+            losses = {}
 
-    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_id):
+        results = self.inference(anchors, pred_logits, pred_densebox_regress, pred_centerness, images.image_sizes)
+        processed_results = []
+        for results_per_image, input_per_image, image_size in zip(
+            results, batched_inputs, images.image_sizes
+        ):
+            height = input_per_image.get("height", image_size[0])
+            width = input_per_image.get("width", image_size[1])
+            #r = detector_postprocess(results_per_image, height, width)
+            results = Instances((height, width), **results_per_image.get_fields())
+            processed_results.append(results)
+
+        return processed_results, losses
+
+    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness):
         """
         Args:
             anchors (list[Boxes]): a list of #feature level Boxes
@@ -222,7 +245,6 @@ class FCOS(nn.Module):
         centerness_flatten = []
         labels_flatten = []
         reg_targets_flatten = []
-        weight_flatten = []
 
         for l in range(len(gt_labels)):
            box_cls_flatten.append(pred_logits[l].reshape(-1, self.num_classes))
@@ -313,9 +335,9 @@ class FCOS(nn.Module):
         """
         #anchors = Boxes.cat(anchors)  # Rx4
 
-        gt_labels, matched_gt_boxes, gt_id = self.anchor_matcher(gt_instances, anchors)
+        gt_labels, matched_gt_boxes  = self.anchor_matcher(gt_instances, anchors)
 
-        return gt_labels, matched_gt_boxes , gt_id
+        return gt_labels, matched_gt_boxes
 
     def inference(self, anchors, pred_logits, pred_densebox_regress, pred_centerness, image_sizes):
         """
@@ -403,22 +425,12 @@ class FCOS(nn.Module):
         keep = keep[: self.max_detections_per_image]
 
         result = Instances(image_size)
-        result.pred_boxes = Boxes(boxes_all[keep])
-        result.scores = scores_all[keep]
-        result.pred_classes = class_idxs_all[keep]
-        result.level = level_all[keep]
-        result.anchor = anchor_all[keep]
+        result.proposal_boxes = Boxes(boxes_all[keep])
+        result.objectness_logits = scores_all[keep]
+        #result.pred_classes = class_idxs_all[keep]
+        #result.level = level_all[keep]
+        #result.anchor = anchor_all[keep]
         return result
-
-    def preprocess_image(self, batched_inputs):
-        """
-        Normalize, pad and batch the input images.
-        """
-        images = [x["image"].to(self.device) for x in batched_inputs]
-        images = [(x - self.pixel_mean) / self.pixel_std for x in images]
-        images = ImageList.from_tensors(images, self.backbone.size_divisibility)
-        return images
-
 
 class FCOSHead(nn.Module):
     """
@@ -458,7 +470,6 @@ class FCOSHead(nn.Module):
         )
         self.bbox_pred = nn.Conv2d(in_channels, 4, kernel_size=3, stride=1, padding=1)
         self.centerness_pred = nn.Conv2d(in_channels, 1, kernel_size=3, stride=1, padding=1)
-        self.sft_affine = cfg.MODEL.FCOS.CLS_TO_BOX
 
         # Initialization
         for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred]:
@@ -509,3 +520,4 @@ class FCOSHead(nn.Module):
                 centerness.append(self.centerness_pred(box_subnet))
 	
         return logits, bbox_reg, centerness
+

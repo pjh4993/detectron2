@@ -57,6 +57,8 @@ class GeneralizedRCNN(nn.Module):
         super().__init__()
         self.backbone = backbone
         self.proposal_generator = proposal_generator
+        for param in self.proposal_generator.parameters():
+            param.requires_grad = False
         self.roi_heads = roi_heads
 
         self.input_format = input_format
@@ -113,7 +115,7 @@ class GeneralizedRCNN(nn.Module):
             box_size = min(len(prop.proposal_boxes), max_vis_prop)
             v_pred = Visualizer(img, None)
             v_pred = v_pred.overlay_instances(
-                boxes=prop.proposal_boxes[0:box_size].tensor.cpu().numpy()
+                boxes=prop.proposal_boxes[0:box_size].tensor.detach().cpu().numpy()
             )
             prop_img = v_pred.get_image()
             vis_img = np.concatenate((anno_img, prop_img), axis=1)
@@ -157,7 +159,8 @@ class GeneralizedRCNN(nn.Module):
         features = self.backbone(images.tensor)
 
         if self.proposal_generator:
-            proposals, proposal_losses = self.proposal_generator(images, features, gt_instances)
+            #change here for FCOSRCNN
+            proposals, proposal_losses = self.proposal_generator(batched_inputs, images, features, gt_instances)
         else:
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]
@@ -171,7 +174,7 @@ class GeneralizedRCNN(nn.Module):
 
         losses = {}
         losses.update(detector_losses)
-        losses.update(proposal_losses)
+        #losses.update(proposal_losses)
         return losses
 
     def inference(self, batched_inputs, detected_instances=None, do_postprocess=True):
