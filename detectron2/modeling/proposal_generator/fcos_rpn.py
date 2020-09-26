@@ -413,8 +413,9 @@ class FCOSRPN(nn.Module):
             # predict boxes
             predicted_boxes = self.box2box_transform.apply_densebox_deltas(box_reg_i, anchors_i.get_centers().repeat(1,2), curr_level)
 
+            
             boxes_all.append(predicted_boxes)
-            scores_all.append(predicted_prob)
+            scores_all.append((predicted_prob / (1 - predicted_prob)).log())
             class_idxs_all.append(classes_idxs)
             level_all.append(box_level_i)
             anchor_all.append(anchors_i.get_centers())
@@ -429,7 +430,7 @@ class FCOSRPN(nn.Module):
         result.proposal_boxes = Boxes(boxes_all[keep])
         result.objectness_logits = scores_all[keep]
         #result.pred_classes = class_idxs_all[keep]
-        #result.level = level_all[keep]
+        result.level = level_all[keep]
         #result.anchor = anchor_all[keep]
         return result
 

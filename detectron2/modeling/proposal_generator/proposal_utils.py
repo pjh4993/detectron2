@@ -165,6 +165,13 @@ def add_ground_truth_to_proposals_single_image(gt_boxes, proposals):
     gt_proposal = Instances(proposals.image_size)
     gt_proposal.proposal_boxes = gt_boxes
     gt_proposal.objectness_logits = gt_logits
+
+    # need to add level of feature to be detect to gt_proposal
+    gt_level = (torch.max(gt_boxes.tensor[:,2:] - gt_boxes.tensor[:,:2], dim=1)[0].log2() - 6)
+    gt_level[gt_level < 0] = 0
+    gt_level = gt_level.floor()
+    gt_proposal.level = gt_level
+
     new_proposals = Instances.cat([proposals, gt_proposal])
 
     return new_proposals

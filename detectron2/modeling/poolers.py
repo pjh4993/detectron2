@@ -19,6 +19,7 @@ https://github.com/pytorch/pytorch/issues/41412
 __all__ = ["ROIPooler"]
 
 
+# need to change based on FCOS level
 def assign_boxes_to_levels(
     box_lists: List[Boxes],
     min_level: int,
@@ -187,7 +188,7 @@ class ROIPooler(nn.Module):
         assert canonical_box_size > 0
         self.canonical_box_size = canonical_box_size
 
-    def forward(self, x: List[torch.Tensor], box_lists: List[Boxes]):
+    def forward(self, x: List[torch.Tensor], box_lists: List[Boxes], level_lists: List[torch.Tensor] = None):
         """
         Args:
             x (list[Tensor]): A list of feature maps of NCHW shape, with scales matching those
@@ -228,9 +229,12 @@ class ROIPooler(nn.Module):
         if num_level_assignments == 1:
             return self.level_poolers[0](x[0], pooler_fmt_boxes)
 
-        level_assignments = assign_boxes_to_levels(
-            box_lists, self.min_level, self.max_level, self.canonical_box_size, self.canonical_level
-        )
+        if level_lists is None:
+            level_assignments = assign_boxes_to_levels(
+                box_lists, self.min_level, self.max_level, self.canonical_box_size, self.canonical_level
+            )
+        else:
+            level_assignments = torch.cat(level_lists)
 
         num_boxes = len(pooler_fmt_boxes)
         num_channels = x[0].shape[1]

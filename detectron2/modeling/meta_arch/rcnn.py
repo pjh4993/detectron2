@@ -172,7 +172,7 @@ class GeneralizedRCNN(nn.Module):
         if self.vis_period > 0:
             storage = get_event_storage()
             if storage.iter % self.vis_period == 0:
-                self.visualize_training(batched_inputs, proposals)
+                self.visualize_training(batched_inputs, _)
 
         losses = {}
         losses.update(detector_losses)
