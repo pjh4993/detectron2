@@ -21,6 +21,7 @@ MODEL:
     # which is approximately 1000 proposals per-image since the default batch size for FPN is 2.
     POST_NMS_TOPK_TRAIN: 1000
     POST_NMS_TOPK_TEST: 1000
+    BBOX_REG_LOSS_TYPE: 'giou'
   ROI_HEADS:
     NAME: "StandardROIHeads"
     IN_FEATURES: ["p3", "p4", "p5", "p6", "p7"]
