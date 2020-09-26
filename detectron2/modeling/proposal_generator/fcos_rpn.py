@@ -55,7 +55,8 @@ class FCOSRPN(nn.Module):
         self.focal_loss_gamma         = cfg.MODEL.FCOS.FOCAL_LOSS_GAMMA
         self.smooth_l1_loss_beta      = cfg.MODEL.FCOS.SMOOTH_L1_LOSS_BETA
         # Inference parameters:
-        self.score_threshold          = cfg.MODEL.FCOS.SCORE_THRESH_TEST
+        #self.score_threshold          = cfg.MODEL.FCOS.SCORE_THRESH_TEST
+        self.score_threshold          = 0.0
         self.topk_candidates          = cfg.MODEL.FCOS.TOPK_CANDIDATES_TEST
         self.nms_threshold            = cfg.MODEL.FCOS.NMS_THRESH_TEST
         self.max_detections_per_image = cfg.TEST.DETECTIONS_PER_IMAGE

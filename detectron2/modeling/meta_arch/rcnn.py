@@ -59,6 +59,8 @@ class GeneralizedRCNN(nn.Module):
         self.proposal_generator = proposal_generator
         for param in self.proposal_generator.parameters():
             param.requires_grad = False
+        for param in self.backbone.parameters():
+            param.requires_grad = False
         self.roi_heads = roi_heads
 
         self.input_format = input_format
@@ -201,7 +203,7 @@ class GeneralizedRCNN(nn.Module):
 
         if detected_instances is None:
             if self.proposal_generator:
-                proposals, _ = self.proposal_generator(images, features, None)
+                proposals, _ = self.proposal_generator(batched_inputs, images, features, None)
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [x["proposals"].to(self.device) for x in batched_inputs]

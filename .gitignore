@@ -45,3 +45,5 @@ wheels/
 /datasets
 /projects/*/datasets
 /models
+/demo/input
+/demo/output

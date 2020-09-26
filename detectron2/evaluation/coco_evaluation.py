@@ -412,7 +412,7 @@ def instances_to_coco_json(instances, img_id):
     boxes = boxes.tolist()
     scores = instances.scores.tolist()
     classes = instances.pred_classes.tolist()
-    level = instances.level.tolist()
+    #level = instances.level.tolist()
 
     has_mask = instances.has("pred_masks")
     if has_mask:
@@ -440,7 +440,7 @@ def instances_to_coco_json(instances, img_id):
             "category_id": classes[k],
             "bbox": boxes[k],
             "score": scores[k],
-            "level": level[k]
+            #"level": level[k]
         }
         if has_mask:
             result["segmentation"] = rles[k]
