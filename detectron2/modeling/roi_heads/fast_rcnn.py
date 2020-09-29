@@ -43,7 +43,7 @@ Naming convention:
 """
 
 
-def fast_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image):
+def fast_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image, level_assignment_list=None):
     """
     Call `fast_rcnn_inference_single_image` for all images.
 
@@ -69,17 +69,25 @@ def fast_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, t
         kept_indices: (list[Tensor]): A list of 1D tensor of length of N, each element indicates
             the corresponding boxes/scores index in [0, Ri) from the input, for image i.
     """
-    result_per_image = [
-        fast_rcnn_inference_single_image(
-            boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
-        )
-        for scores_per_image, boxes_per_image, image_shape in zip(scores, boxes, image_shapes)
-    ]
+    if level_assignment_list is None:
+        result_per_image = [
+            fast_rcnn_inference_single_image(
+                boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
+            )
+            for scores_per_image, boxes_per_image, image_shape in zip(scores, boxes, image_shapes)
+        ]
+    else:
+        result_per_image = [
+            fast_rcnn_inference_single_image(
+                boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image, level_assignment
+            )
+            for scores_per_image, boxes_per_image, image_shape, level_assignment in zip(scores, boxes, image_shapes, level_assignment_list)
+        ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
 
 def fast_rcnn_inference_single_image(
-    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image
+    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image, level_assignment=None
 ):
     """
     Single-image inference. Return bounding-box detection results by thresholding

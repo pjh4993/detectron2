@@ -152,11 +152,11 @@ class FCOSROIHeads(StandardROIHeads):
             In inference, a list of `Instances`, the predicted instances.
         """
         box_features = [box_features[f] for f in self.box_in_features]
-        box_features = self.box_pooler(box_features, [x.proposal_boxes for x in proposals], [x.level for x in proposals])
+        box_features, level_assignment = self.box_pooler(box_features, [x.proposal_boxes for x in proposals], [x.level for x in proposals])
         box_features = self.box_head(box_features)
 
         class_features = [class_features[f] for f in self.box_in_features]
-        class_features = self.box_pooler(class_features, [x.proposal_boxes for x in proposals], [x.level for x in proposals])
+        class_features, _ = self.box_pooler(class_features, [x.proposal_boxes for x in proposals], [x.level for x in proposals])
         class_features = self.class_head(class_features)
 
         predictions = self.box_predictor(box_features, class_features)
@@ -168,7 +168,7 @@ class FCOSROIHeads(StandardROIHeads):
             pred_instances, _ = self.box_predictor.inference(predictions, proposals)
             return pred_instances, losses
         else:
-            pred_instances, _ = self.box_predictor.inference(predictions, proposals)
+            pred_instances, _ = self.box_predictor.inference(predictions, proposals, level_assignment)
             return pred_instances
 
 class FCOSRCNNOutputLayers(FastRCNNOutputLayers):
@@ -200,3 +200,33 @@ class FCOSRCNNOutputLayers(FastRCNNOutputLayers):
         scores = self.cls_score(class_subnet)
         proposal_deltas = self.bbox_pred(box_subnet)
         return scores, proposal_deltas
+
+    def inference(self, predictions, proposals, level_assignment=None):
+        """
+        Args:
+            predictions: return values of :meth:`forward()`.
+            proposals (list[Instances]): proposals that match the features that were
+                used to compute predictions. The ``proposal_boxes`` field is expected.
+
+        Returns:
+            list[Instances]: same as `fast_rcnn_inference`.
+            list[Tensor]: same as `fast_rcnn_inference`.
+        """
+        boxes = self.predict_boxes(predictions, proposals)
+        scores = self.predict_probs(predictions, proposals)
+        image_shapes = [x.image_size for x in proposals]
+        level_assignment_list = []
+        if level_assignment is not None:
+            st = 0 
+            for i in range(len(boxes)):
+                level_assignment_list.append(level_assignment[st:st+len(boxes[i])])
+                st += len(boxes[i])
+        return fast_rcnn_inference(
+            boxes,
+            scores,
+            image_shapes,
+            self.test_score_thresh,
+            self.test_nms_thresh,
+            self.test_topk_per_image,
+            level_assignment_list,
+        )
