@@ -458,7 +458,6 @@ class FCOSHead(nn.Module):
         )
         self.bbox_pred = nn.Conv2d(in_channels, 4, kernel_size=3, stride=1, padding=1)
         self.centerness_pred = nn.Conv2d(in_channels, 1, kernel_size=3, stride=1, padding=1)
-        self.sft_affine = cfg.MODEL.FCOS.CLS_TO_BOX
 
         # Initialization
         for modules in [self.cls_subnet, self.bbox_subnet, self.cls_score, self.bbox_pred, self.centerness_pred]:
@@ -501,7 +500,6 @@ class FCOSHead(nn.Module):
             
             box_subnet = self.bbox_subnet(feature)
             bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(box_subnet))))
-            #bbox_reg.append(F.relu(self.scales[l](box_subnet) * self.bbox_pred(box_subnet)))
 
             if self.centerness_on_cls:
                 centerness.append(self.centerness_pred(cls_subnet))

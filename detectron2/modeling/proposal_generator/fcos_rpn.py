@@ -55,8 +55,8 @@ class FCOSRPN(nn.Module):
         self.focal_loss_gamma         = cfg.MODEL.FCOS.FOCAL_LOSS_GAMMA
         self.smooth_l1_loss_beta      = cfg.MODEL.FCOS.SMOOTH_L1_LOSS_BETA
         # Inference parameters:
-        #self.score_threshold          = cfg.MODEL.FCOS.SCORE_THRESH_TEST
-        self.score_threshold          = 0.0
+        self.score_threshold          = cfg.MODEL.FCOS.SCORE_THRESH_TEST
+        #self.score_threshold          = 0.01
         self.topk_candidates          = cfg.MODEL.FCOS.TOPK_CANDIDATES_TEST
         self.nms_threshold            = cfg.MODEL.FCOS.NMS_THRESH_TEST
         self.max_detections_per_image = cfg.TEST.DETECTIONS_PER_IMAGE
@@ -201,26 +201,26 @@ class FCOSRPN(nn.Module):
             if self.vis_period > 0:
                 storage = get_event_storage()
                 if storage.iter % self.vis_period == 0:
-                    results = self.inference(
+                    results, proposals = self.inference(
                         anchors, pred_logits, pred_densebox_regress, pred_centerness ,images.image_sizes
                     )
-                    self.visualize_training(batched_inputs, results)
+                    self.visualize_training(batched_inputs, proposals)
 
         else:
             losses = {}
 
-        results = self.inference(anchors, pred_logits, pred_densebox_regress, pred_centerness, images.image_sizes)
+        results, proposals = self.inference(anchors, pred_logits, pred_densebox_regress, pred_centerness, images.image_sizes)
         processed_results = []
-        for results_per_image, input_per_image, image_size in zip(
-            results, batched_inputs, images.image_sizes
+        for results_per_image, proposals_per_image, input_per_image, image_size in zip(
+            results, proposals, batched_inputs, images.image_sizes
         ):
             height = input_per_image.get("height", image_size[0])
             width = input_per_image.get("width", image_size[1])
-            #r = detector_postprocess(results_per_image, height, width)
-            results = Instances((height, width), **results_per_image.get_fields())
-            processed_results.append(results)
 
-        return processed_results, losses
+            r = detector_postprocess(results_per_image, height, width)
+            processed_results.append(r)
+
+        return processed_results, proposals, losses
 
     def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness):
         """
@@ -313,7 +313,13 @@ class FCOSRPN(nn.Module):
         centerness = (left_right.min(dim=-1)[0] / left_right.max(dim=-1)[0]) * \
                 (top_bottom.min(dim=-1)[0] / top_bottom.max(dim=-1)[0])
         return torch.sqrt(centerness)
-        
+
+    def box_subnet(self):
+        return {k : v for k, v in zip(self.in_features, self.head.box_subnet_features)}
+    
+    def class_subnet(self):
+        return {k : v for k, v in zip(self.in_features, self.head.class_subnet_features)}
+
     @torch.no_grad()
     def label_anchors(self, anchors, gt_instances):
         """
@@ -353,15 +359,17 @@ class FCOSRPN(nn.Module):
             results (List[Instances]): a list of #images elements.
         """
         results = []
+        proposals = []
         for img_idx, image_size in enumerate(image_sizes):
             pred_logits_per_image = [x[img_idx] for x in pred_logits]
             deltas_per_image = [x[img_idx] for x in pred_densebox_regress]
             pred_centerness_per_image = [x[img_idx] for x in pred_centerness]
-            results_per_image = self.inference_single_image(
+            results_per_image, proposal_per_image = self.inference_single_image(
                 anchors, pred_logits_per_image, deltas_per_image, pred_centerness_per_image ,tuple(image_size)
             )
             results.append(results_per_image)
-        return results
+            proposals.append(proposal_per_image)
+        return results, proposals
 
     def inference_single_image(self, anchors, box_cls, box_delta, centerness ,image_size):
         """
@@ -383,6 +391,7 @@ class FCOSRPN(nn.Module):
         scores_all = []
         class_idxs_all = []
         level_all = []
+        objectness_all = []
         anchor_all = []
 
         # Iterate over every feature level
@@ -415,24 +424,31 @@ class FCOSRPN(nn.Module):
 
             
             boxes_all.append(predicted_boxes)
-            scores_all.append((predicted_prob / (1 - predicted_prob)).log())
+            scores_all.append(predicted_prob)
+            objectness_all.append((predicted_prob / (1 - predicted_prob)).log())
             class_idxs_all.append(classes_idxs)
             level_all.append(box_level_i)
             anchor_all.append(anchors_i.get_centers())
 
-        boxes_all, scores_all, class_idxs_all, level_all, anchor_all = [
-            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all, anchor_all]
+        boxes_all, scores_all, class_idxs_all, level_all, objectness_all, anchor_all = [
+            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all, objectness_all, anchor_all]
         ]
         keep = batched_nms(boxes_all, scores_all, class_idxs_all, self.nms_threshold)
         keep = keep[: self.max_detections_per_image]
 
         result = Instances(image_size)
-        result.proposal_boxes = Boxes(boxes_all[keep])
-        result.objectness_logits = scores_all[keep]
-        #result.pred_classes = class_idxs_all[keep]
+        result.pred_boxes = Boxes(boxes_all[keep])
+        result.scores = scores_all[keep]
+        result.pred_classes = class_idxs_all[keep]
         result.level = level_all[keep]
         #result.anchor = anchor_all[keep]
-        return result
+
+        proposal = Instances(image_size)
+        proposal.proposal_boxes = Boxes(boxes_all[keep])
+        proposal.objectness_logits = objectness_all[keep]
+        proposal.level = level_all[keep]
+
+        return result, proposal
 
 class FCOSHead(nn.Module):
     """
@@ -508,12 +524,16 @@ class FCOSHead(nn.Module):
         logits = []
         bbox_reg = []
         centerness = []
+        class_subnet = []
+        box_subnet = []
         for l ,feature in enumerate(features):
             cls_subnet = self.cls_subnet(feature)
+            class_subnet.append(cls_subnet)
             logits.append(self.cls_score(cls_subnet))
             
-            box_subnet = self.bbox_subnet(feature)
-            bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(box_subnet))))
+            bbox_subnet = self.bbox_subnet(feature)
+            box_subnet.append(bbox_subnet)
+            bbox_reg.append(F.relu(self.scales[l](self.bbox_pred(bbox_subnet))))
             #bbox_reg.append(F.relu(self.scales[l](box_subnet) * self.bbox_pred(box_subnet)))
 
             if self.centerness_on_cls:
@@ -521,5 +541,7 @@ class FCOSHead(nn.Module):
             else:
                 centerness.append(self.centerness_pred(box_subnet))
 	
+        self.class_subnet_features = class_subnet
+        self.box_subnet_features = box_subnet
         return logits, bbox_reg, centerness
 

@@ -57,12 +57,14 @@ class GeneralizedRCNN(nn.Module):
         super().__init__()
         self.backbone = backbone
         self.proposal_generator = proposal_generator
+        self.roi_heads = roi_heads
+
+        #changed for FCOSRPN 
         for param in self.proposal_generator.parameters():
             param.requires_grad = False
         for param in self.backbone.parameters():
             param.requires_grad = False
-        self.roi_heads = roi_heads
-
+        
         self.input_format = input_format
         self.vis_period = vis_period
         if vis_period > 0:
@@ -114,10 +116,10 @@ class GeneralizedRCNN(nn.Module):
             v_gt = Visualizer(img, None)
             v_gt = v_gt.overlay_instances(boxes=input["instances"].gt_boxes)
             anno_img = v_gt.get_image()
-            box_size = min(len(prop.proposal_boxes), max_vis_prop)
+            box_size = min(len(prop.pred_boxes), max_vis_prop)
             v_pred = Visualizer(img, None)
             v_pred = v_pred.overlay_instances(
-                boxes=prop.proposal_boxes[0:box_size].tensor.detach().cpu().numpy()
+                boxes=prop.pred_boxes[0:box_size].tensor.detach().cpu().numpy()
             )
             prop_img = v_pred.get_image()
             vis_img = np.concatenate((anno_img, prop_img), axis=1)
@@ -162,13 +164,15 @@ class GeneralizedRCNN(nn.Module):
 
         if self.proposal_generator:
             #change here for FCOSRCNN
-            proposals, proposal_losses = self.proposal_generator(batched_inputs, images, features, gt_instances)
+            results, proposals, proposal_losses = self.proposal_generator(batched_inputs, images, features, gt_instances)
         else:
             assert "proposals" in batched_inputs[0]
             proposals = [x["proposals"].to(self.device) for x in batched_inputs]
             proposal_losses = {}
 
-        _, detector_losses = self.roi_heads(images, features, proposals, gt_instances)
+        #_, detector_losses = self.roi_heads(images, features, proposals, gt_instances)
+        _, detector_losses = self.roi_heads(images, self.proposal_generator.box_subnet(),
+            self.proposal_generator.class_subnet() , proposals, gt_instances)
         if self.vis_period > 0:
             storage = get_event_storage()
             if storage.iter % self.vis_period == 0:
@@ -203,12 +207,24 @@ class GeneralizedRCNN(nn.Module):
 
         if detected_instances is None:
             if self.proposal_generator:
-                proposals, _ = self.proposal_generator(batched_inputs, images, features, None)
+                results_proposal, proposals, _ = self.proposal_generator(batched_inputs, images, features, None)
             else:
                 assert "proposals" in batched_inputs[0]
                 proposals = [x["proposals"].to(self.device) for x in batched_inputs]
+            
 
-            results, _ = self.roi_heads(images, features, proposals, None)
+            #results, _ = self.roi_heads(images, features, proposals, None)
+            results, _ = self.roi_heads(images, self.proposal_generator.box_subnet(), 
+                self.proposal_generator.class_subnet() , proposals, None)
+
+            """
+            if "instances" in batched_inputs[0]:
+                gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
+            else:
+                gt_instances = None
+            results, _ = self.roi_heads(images, self.proposal_generator.box_subnet(),
+                self.proposal_generator.class_subnet() , proposals, gt_instances)
+            """
         else:
             detected_instances = [x.to(self.device) for x in detected_instances]
             results = self.roi_heads.forward_with_given_boxes(features, detected_instances)

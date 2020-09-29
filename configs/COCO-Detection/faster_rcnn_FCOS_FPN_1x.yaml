@@ -1,4 +1,5 @@
 MODEL: 
+  #LOAD_PROPOSALS: True
   META_ARCHITECTURE: "GeneralizedRCNN"
   BACKBONE:
     NAME: "build_retinanet_resnet_fpn_backbone"
@@ -23,17 +24,20 @@ MODEL:
     POST_NMS_TOPK_TEST: 1000
     BBOX_REG_LOSS_TYPE: 'giou'
   ROI_HEADS:
-    NAME: "StandardROIHeads"
+    NAME: "FCOSROIHeads"
     IN_FEATURES: ["p3", "p4", "p5", "p6", "p7"]
     #PROPOSAL_APPEND_GT: False
   ROI_BOX_HEAD:
     NAME: "FastRCNNConvFCHead"
-    NUM_FC: 2
+    NUM_FC: 1
     POOLER_RESOLUTION: 7
-    TRAIN_ON_PRED_BOXES: True
+    CLS_AGNOSTIC_BBOX_REG: True
+    BBOX_REG_LOSS_TYPE: "giou"
+    #TRAIN_ON_PRED_BOXES: True
 DATASETS:
-  TRAIN: ("coco_2017_val",)
+  TRAIN: ("coco_2017_train",)
   TEST: ("coco_2017_val",)
+  #PROPOSAL_FILES_TEST: ("detectron2://COCO-Detection/rpn_R_50_FPN_1x/137258492/coco_2017_val_box_proposals_ee0dad.pkl", )
 SOLVER:
   IMS_PER_BATCH: 16
   BASE_LR: 0.02

@@ -257,7 +257,7 @@ class ROIHeads(torch.nn.Module):
         # points (under one tested configuration).
         if self.proposal_append_gt:
             proposals = add_ground_truth_to_proposals(gt_boxes, proposals)
-
+ 
         proposals_with_gt = []
 
         num_fg_samples = []
