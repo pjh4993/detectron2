@@ -326,7 +326,7 @@ class COCOEvaluator(DatasetEvaluator):
         """
 
         metrics = {
-            "bbox": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
+            "bbox": ["AP", "AP50", "AP75", "AP80", "AP90", "APs", "APm", "APl"],
             "segm": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
             "keypoints": ["AP", "AP50", "AP75", "APm", "APl"],
         }[iou_type]
@@ -375,8 +375,11 @@ class COCOEvaluator(DatasetEvaluator):
         for i in range(len(results_flatten)//2):
             result_dict[results_flatten[2*i]] = results_flatten[2*i+1]
 
-        with open('result_dict.json','w') as fp:
-            json.dump(result_dict, fp)
+        file_path = os.path.join(self._output_dir, "result_dict.json")
+        self._logger.info("Saving results per category to {}".format(file_path))
+        with PathManager.open(file_path, "w") as f:
+            f.write(json.dumps(result_dict))
+            f.flush()
 
         results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])
         table = tabulate(

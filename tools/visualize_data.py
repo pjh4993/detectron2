@@ -22,7 +22,7 @@ def setup(args):
     cfg.freeze()
     return cfg
 
-
+ 
 def parse_args(in_args=None):
     parser = argparse.ArgumentParser(description="Visualize ground-truth data")
     parser.add_argument(
