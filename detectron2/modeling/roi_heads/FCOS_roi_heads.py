@@ -55,7 +55,6 @@ class FCOSROIHeads(StandardROIHeads):
             **kwargs,
         )
         self.class_head = class_head
-        self.proposal_append_gt = False
 
     @classmethod
     def from_config(cls, cfg, input_shape):

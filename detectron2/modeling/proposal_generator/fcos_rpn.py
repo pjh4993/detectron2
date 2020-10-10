@@ -302,8 +302,8 @@ class FCOSRPN(nn.Module):
             loss_box_reg = box_regression_flatten.sum()
             loss_centerness = centerness_flatten.sum()
         return {
-            "loss_cls": loss_cls ,
-            "loss_box_reg": loss_box_reg ,
+            "loss_cls_proposal": loss_cls ,
+            "loss_box_reg_proposal": loss_box_reg ,
             "loss_centerness" : loss_centerness 
         }
 
