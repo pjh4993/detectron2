@@ -272,5 +272,12 @@ def _get_builtin_metadata(dataset_name):
         return {
             "thing_classes": ["object"]
         }
+    elif dataset_name == "VOC_COCO":
+        return {
+            "thing_classes": ["aeroplane", "bicycle", "bird", "boat", "bottle",
+                              "bus", "car", "cat", "chair", "cow", "diningtable",
+                              "dog", "horse", "motorbike", "person", "pottedplant",
+                              "sheep", "sofa", "train", "tvmonitor"]
+        }
 
     raise KeyError("No built-in metadata for dataset {}".format(dataset_name))

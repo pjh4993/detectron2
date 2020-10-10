@@ -457,7 +457,7 @@ if __name__ == "__main__":
     dicts = load_coco_json(sys.argv[1], sys.argv[2], sys.argv[3])
     logger.info("Done loading {} samples.".format(len(dicts)))
 
-    dirname = "coco-data-vis"
+    dirname = "/media/pjh3974/output/detectron2/Pascal-Detection/visualize"
     os.makedirs(dirname, exist_ok=True)
     for d in dicts:
         img = np.array(Image.open(d["file_name"]))
