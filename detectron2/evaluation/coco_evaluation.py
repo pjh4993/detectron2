@@ -13,7 +13,8 @@ import pycocotools.mask as mask_util
 import torch
 from fvcore.common.file_io import PathManager
 from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
+from detectron2.evaluation.custom_eval_api import COCOeval
+#from pycocotools.cocoeval import COCOeval
 from tabulate import tabulate
 
 import detectron2.utils.comm as comm
@@ -254,6 +255,8 @@ class COCOEvaluator(DatasetEvaluator):
                 "unofficial" if self._use_fast_impl else "official"
             )
         )
+        
+        self._use_fast_impl = False
         for task in sorted(tasks):
             coco_eval = (
                 _evaluate_predictions_on_coco(
@@ -333,6 +336,8 @@ class COCOEvaluator(DatasetEvaluator):
 
         arng_names = ["all","small","medium","large"]
 
+        level_names = ["all", "lvl0", "lvl1", "lvl2", "lvl3", "lvl4"]
+
         if coco_eval is None:
             self._logger.warn("No predictions from the model!")
             return {metric: float("nan") for metric in metrics}
@@ -361,7 +366,7 @@ class COCOEvaluator(DatasetEvaluator):
             # area range index 0: all area ranges
             # max dets index -1: typically 100 per image
             for arng_idx, rng_name in enumerate(arng_names):
-                precision = precisions[:, :, idx, arng_idx, -1]
+                precision = precisions[:, :, idx, arng_idx, 0, 0,-1]
                 precision = precision[precision > -1]
                 ap = np.mean(precision) if precision.size else float("nan")
                 results_per_category.append(("{}, {}".format(name,rng_name), float(ap * 100)))
@@ -389,9 +394,49 @@ class COCOEvaluator(DatasetEvaluator):
             headers=["category", "AP"] * (N_COLS // 2),
             numalign="left",
         )
+
+        boxes = coco_eval.eval["boxes"]
+        # precision has dims (iou, recall, cls, area range, max dets)
+        assert len(class_names) == boxes.shape[2]
+
+        box_per_arng = []
+        for lrng_idx, rng_name in enumerate(level_names):
+            box_per = boxes[:, :, :, 0, 0, lrng_idx, -1]
+            box_per = box_per[box_per > 0]
+            avg_box = np.mean(box_per) if box_per.size else float("nan")
+            std_box = np.std(box_per) if box_per.size else float("nan")
+            box_per_arng.append(("{}".format(rng_name), float(avg_box), float(std_box)))
+
+        # tabulate it
+        N_COLS = min(6, len(box_per_arng))
+        results_flatten = list(itertools.chain(*box_per_arng))
+
+        result_dict = {}
+
+        for i in range(len(results_flatten)//2):
+            result_dict[results_flatten[2*i]] = results_flatten[2*i+1]
+
+        file_path = os.path.join(self._output_dir, "box_dict.json")
+        self._logger.info("Saving results per box to {}".format(file_path))
+        with PathManager.open(file_path, "w") as f:
+            f.write(json.dumps(result_dict))
+            f.flush()
+
+        results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])
+        box_table = tabulate(
+            results_2d,
+            tablefmt="pipe",
+            floatfmt=".3f",
+            headers=["level", "mean", "std"] * (N_COLS // 2),
+            numalign="left",
+        )
+
         self._logger.info("Per-category {} AP: \n".format(iou_type) + table)
+        self._logger.info("\n" + box_table)
 
         results.update({"AP-" + name: ap for name, ap in results_per_category})
+
+
         return results
 
 
@@ -415,7 +460,14 @@ def instances_to_coco_json(instances, img_id):
     boxes = boxes.tolist()
     scores = instances.scores.tolist()
     classes = instances.pred_classes.tolist()
-    #level = instances.level.tolist()
+    if 'box_area' in instances.get_fields().keys():
+        box_area = instances.box_area.tolist()
+    else:
+        box_area = [3 ** 2] * len(classes)
+    if 'level' in instances.get_fields().keys():
+        level = instances.level.tolist()
+    else:
+        level = [0] * len(classes)
 
     has_mask = instances.has("pred_masks")
     if has_mask:
@@ -443,7 +495,8 @@ def instances_to_coco_json(instances, img_id):
             "category_id": classes[k],
             "bbox": boxes[k],
             "score": scores[k],
-            #"level": level[k]
+            "level": level[k],
+            "box_area" : box_area[k]
         }
         if has_mask:
             result["segmentation"] = rles[k]
@@ -593,7 +646,7 @@ def _evaluate_predictions_on_coco(
         pass
 
     coco_dt = coco_gt.loadRes(coco_results)
-    use_fast_impl = False
+    #use_fast_impl = False
     coco_eval = (COCOeval_opt if use_fast_impl else COCOeval)(coco_gt, coco_dt, iou_type)
 
     if iou_type == "keypoints":
