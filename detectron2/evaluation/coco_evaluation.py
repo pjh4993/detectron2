@@ -464,8 +464,8 @@ def instances_to_coco_json(instances, img_id):
         box_area = instances.box_area.tolist()
     else:
         box_area = [3 ** 2] * len(classes)
-    if 'level' in instances.get_fields().keys():
-        level = instances.level.tolist()
+    if 'level_assignment' in instances.get_fields().keys():
+        level = instances.level_assignment.tolist()
     else:
         level = [0] * len(classes)
 
