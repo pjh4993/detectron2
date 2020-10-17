@@ -6,7 +6,7 @@ from torch.autograd.function import Function
 
 from detectron2.config import configurable
 from detectron2.structures import Boxes, Instances, pairwise_iou, ImageList
-from detectron2.layers import Linear, ShapeSpec, batched_nms, cat, nonzero_tuple
+from detectron2.layers import Linear, ShapeSpec, batched_nms, cat, nonzero_tuple, AttentionConv
 from detectron2.utils.events import get_event_storage
 
 from ..box_regression import Box2BoxTransform
@@ -278,7 +278,6 @@ class FCOSRCNNOutputLayers(FastRCNNOutputLayers):
       (1) proposal-to-detection box regression deltas
       (2) classification scores
     """
-
     def forward(self, box_subnet, class_subnet):
         """
         Args:

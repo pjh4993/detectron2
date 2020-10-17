@@ -400,12 +400,14 @@ class COCOEvaluator(DatasetEvaluator):
         assert len(class_names) == boxes.shape[2]
 
         box_per_arng = []
+        list_box_per_arng = {}
         for lrng_idx, rng_name in enumerate(level_names):
             box_per = boxes[:, :, :, 0, 0, lrng_idx, -1]
             box_per = box_per[box_per > 0]
             avg_box = np.mean(box_per) if box_per.size else float("nan")
             std_box = np.std(box_per) if box_per.size else float("nan")
             box_per_arng.append(("{}".format(rng_name), float(avg_box), float(std_box)))
+            list_box_per_arng['rng_name'] = box_per.tolist()
 
         # tabulate it
         N_COLS = min(6, len(box_per_arng))
@@ -419,7 +421,7 @@ class COCOEvaluator(DatasetEvaluator):
         file_path = os.path.join(self._output_dir, "box_dict.json")
         self._logger.info("Saving results per box to {}".format(file_path))
         with PathManager.open(file_path, "w") as f:
-            f.write(json.dumps(result_dict))
+            f.write(json.dumps({'boxes': list_box_per_arng}))
             f.flush()
 
         results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])

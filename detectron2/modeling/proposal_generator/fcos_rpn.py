@@ -59,7 +59,8 @@ class FCOSRPN(nn.Module):
         self.score_threshold          = 0.01
         self.topk_candidates          = cfg.MODEL.FCOS.TOPK_CANDIDATES_TEST
         self.nms_threshold            = cfg.MODEL.FCOS.NMS_THRESH_TEST
-        self.max_detections_per_image = cfg.TEST.DETECTIONS_PER_IMAGE
+        #self.max_detections_per_image = cfg.TEST.DETECTIONS_PER_IMAGE
+        self.max_detections_per_image = cfg.MODEL.RPN.POST_NMS_TOPK_TRAIN
         # Vis parameters
         self.vis_period               = cfg.VIS_PERIOD
         self.input_format             = cfg.INPUT.FORMAT

@@ -7,7 +7,7 @@ from torch import nn
 from torch.nn import functional as F
 
 from detectron2.config import configurable
-from detectron2.layers import Conv2d, Linear, ShapeSpec, get_norm
+from detectron2.layers import Conv2d, Linear, ShapeSpec, get_norm, AttentionConv
 from detectron2.utils.registry import Registry
 
 __all__ = ["FastRCNNConvFCHead", "build_box_head", "ROI_BOX_HEAD_REGISTRY"]
@@ -29,7 +29,7 @@ class FastRCNNConvFCHead(nn.Module):
 
     @configurable
     def __init__(
-        self, input_shape: ShapeSpec, *, conv_dims: List[int], fc_dims: List[int], conv_norm=""
+        self, input_shape: ShapeSpec, *, conv_dims: List[int], fc_dims: List[int], transformer_dims: List[int] ,conv_norm=""
     ):
         """
         NOTE: this interface is experimental.
@@ -42,9 +42,24 @@ class FastRCNNConvFCHead(nn.Module):
                 See :func:`detectron2.layers.get_norm` for supported types.
         """
         super().__init__()
-        assert len(conv_dims) + len(fc_dims) > 0
+        assert len(conv_dims) + len(fc_dims) + len(transformer_dims) > 0
 
         self._output_size = (input_shape.channels, input_shape.height, input_shape.width)
+
+        self.transformer_norm_relus = []
+        for k, transformer_dim in enumerate(transformer_dims):
+            attention_conv = AttentionConv(
+                in_channels=self._output_size[0],
+                out_channels=transformer_dim,
+                kernel_size=3,
+                padding=1,
+                bias=not conv_norm,
+                norm=get_norm(conv_norm, transformer_dim),
+                activation=F.relu,
+            )
+            self.add_module("attention_conv{}".format(k+1), attention_conv)
+            self.transformer_norm_relus.append(attention_conv)
+            self._output_size = (transformer_dim, self._output_size[1], self._output_size[2])
 
         self.conv_norm_relus = []
         for k, conv_dim in enumerate(conv_dims):
@@ -68,6 +83,10 @@ class FastRCNNConvFCHead(nn.Module):
             self.fcs.append(fc)
             self._output_size = fc_dim
 
+
+
+        for layer in self.transformer_norm_relus:
+            layer.reset_parameters()
         for layer in self.conv_norm_relus:
             weight_init.c2_msra_fill(layer)
         for layer in self.fcs:
@@ -79,14 +98,19 @@ class FastRCNNConvFCHead(nn.Module):
         conv_dim = cfg.MODEL.ROI_BOX_HEAD.CONV_DIM
         num_fc = cfg.MODEL.ROI_BOX_HEAD.NUM_FC
         fc_dim = cfg.MODEL.ROI_BOX_HEAD.FC_DIM
+        num_transformer = cfg.MODEL.ROI_BOX_HEAD.TRANSFORMER
+        transformer_dim = cfg.MODEL.ROI_BOX_HEAD.TRANSFORMER_DIM
         return {
             "input_shape": input_shape,
             "conv_dims": [conv_dim] * num_conv,
             "fc_dims": [fc_dim] * num_fc,
+            "transformer_dims": [transformer_dim] * num_transformer,
             "conv_norm": cfg.MODEL.ROI_BOX_HEAD.NORM,
         }
 
     def forward(self, x):
+        for layer in self.transformer_norm_relus:
+            x = layer(x)
         for layer in self.conv_norm_relus:
             x = layer(x)
         if len(self.fcs):

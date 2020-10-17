@@ -60,10 +60,10 @@ class GeneralizedRCNN(nn.Module):
         self.roi_heads = roi_heads
 
         """
+        """
         #changed for FCOSRPN 
         for param in self.proposal_generator.parameters():
             param.requires_grad = False
-        """
         for param in self.backbone.parameters():
             param.requires_grad = False
         
@@ -182,7 +182,7 @@ class GeneralizedRCNN(nn.Module):
 
         losses = {}
         losses.update(detector_losses)
-        losses.update(proposal_losses)
+        #losses.update(proposal_losses)
         return losses
 
     def inference(self, batched_inputs, detected_instances=None, do_postprocess=True):

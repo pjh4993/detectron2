@@ -34,6 +34,8 @@ MODEL:
     CLS_AGNOSTIC_BBOX_REG: True
     BBOX_REG_LOSS_TYPE: "giou"
     #TRAIN_ON_PRED_BOXES: True
+    TRANSFORMER: 1
+    NORM: "GN"
 DATASETS:
   TRAIN: ("coco_2017_train",)
   TEST: ("coco_2017_val",)
