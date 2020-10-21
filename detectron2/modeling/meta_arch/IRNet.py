@@ -125,7 +125,7 @@ class IRNet(nn.Module):
                     gamma=self.focal_loss_gamma,
                     reduction="sum",
                 ) / N
-
+ 
                 if self.vis_period > 0:
                     storage = get_event_storage()
                     if storage.iter % self.vis_period == 0:
@@ -158,9 +158,6 @@ class IRNet(nn.Module):
             #mask class response map with fg, bg threshold
             fg_CAM = class_response_map * (class_response_map > self.fg_threshold)
             bg_CAM = class_response_map * (class_response_map < self.bg_threshold)
-
-
-
 
             return 1
 

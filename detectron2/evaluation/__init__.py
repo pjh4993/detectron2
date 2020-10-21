@@ -9,6 +9,7 @@ from .pascal_voc_evaluation import PascalVOCDetectionEvaluator
 from .sem_seg_evaluation import SemSegEvaluator
 from .testing import print_csv_format, verify_results
 from .sku_evaluation import SKUEvaluator
-from .custom_eval_api import COCOeval
+from .custom_eval_api import COCOeval_custom
+
 
 __all__ = [k for k in globals().keys() if not k.startswith("_")]

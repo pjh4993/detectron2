@@ -13,8 +13,7 @@ import pycocotools.mask as mask_util
 import torch
 from fvcore.common.file_io import PathManager
 from pycocotools.coco import COCO
-from detectron2.evaluation.custom_eval_api import COCOeval
-#from pycocotools.cocoeval import COCOeval
+from pycocotools.cocoeval import COCOeval
 from tabulate import tabulate
 
 import detectron2.utils.comm as comm
@@ -25,6 +24,7 @@ from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
 
 from .evaluator import DatasetEvaluator
+from .custom_eval_api import COCOeval_custom
 
 
 class COCOEvaluator(DatasetEvaluator):
@@ -256,7 +256,6 @@ class COCOEvaluator(DatasetEvaluator):
             )
         )
         
-        self._use_fast_impl = False
         for task in sorted(tasks):
             coco_eval = (
                 _evaluate_predictions_on_coco(
@@ -329,7 +328,7 @@ class COCOEvaluator(DatasetEvaluator):
         """
 
         metrics = {
-            "bbox": ["AP", "AP50", "AP75", "AP80", "AP90", "APs", "APm", "APl"],
+            "bbox": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
             "segm": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
             "keypoints": ["AP", "AP50", "AP75", "APm", "APl"],
         }[iou_type]
@@ -366,7 +365,8 @@ class COCOEvaluator(DatasetEvaluator):
             # area range index 0: all area ranges
             # max dets index -1: typically 100 per image
             for arng_idx, rng_name in enumerate(arng_names):
-                precision = precisions[:, :, idx, arng_idx, 0, 0,-1]
+                precision = precisions[:, :, idx, arng_idx, 0, 0,-1] if len(precisions.shape) > 5 \
+                    else precisions[:,:,idx, arng_idx, -1]
                 precision = precision[precision > -1]
                 ap = np.mean(precision) if precision.size else float("nan")
                 results_per_category.append(("{}, {}".format(name,rng_name), float(ap * 100)))
@@ -395,46 +395,47 @@ class COCOEvaluator(DatasetEvaluator):
             numalign="left",
         )
 
-        boxes = coco_eval.eval["boxes"]
-        # precision has dims (iou, recall, cls, area range, max dets)
-        assert len(class_names) == boxes.shape[2]
+        if len(precisions.shape) > 5:
+            boxes = coco_eval.eval["boxes"]
+            # precision has dims (iou, recall, cls, area range, max dets)
+            assert len(class_names) == boxes.shape[2]
 
-        box_per_arng = []
-        list_box_per_arng = {}
-        for lrng_idx, rng_name in enumerate(level_names):
-            box_per = boxes[:, :, :, 0, 0, lrng_idx, -1]
-            box_per = box_per[box_per > 0]
-            avg_box = np.mean(box_per) if box_per.size else float("nan")
-            std_box = np.std(box_per) if box_per.size else float("nan")
-            box_per_arng.append(("{}".format(rng_name), float(avg_box), float(std_box)))
-            list_box_per_arng['rng_name'] = box_per.tolist()
+            box_per_arng = []
+            list_box_per_arng = {}
+            for lrng_idx, rng_name in enumerate(level_names):
+                box_per = boxes[:, :, :, 0, 0, lrng_idx, -1]
+                box_per = box_per[box_per > 0]
+                avg_box = np.mean(box_per) if box_per.size else float("nan")
+                std_box = np.std(box_per) if box_per.size else float("nan")
+                box_per_arng.append(("{}".format(rng_name), float(avg_box), float(std_box)))
+                list_box_per_arng['rng_name'] = box_per.tolist()
 
-        # tabulate it
-        N_COLS = min(6, len(box_per_arng))
-        results_flatten = list(itertools.chain(*box_per_arng))
+            # tabulate it
+            N_COLS = min(6, len(box_per_arng))
+            results_flatten = list(itertools.chain(*box_per_arng))
 
-        result_dict = {}
+            result_dict = {}
 
-        for i in range(len(results_flatten)//2):
-            result_dict[results_flatten[2*i]] = results_flatten[2*i+1]
+            for i in range(len(results_flatten)//2):
+                result_dict[results_flatten[2*i]] = results_flatten[2*i+1]
 
-        file_path = os.path.join(self._output_dir, "box_dict.json")
-        self._logger.info("Saving results per box to {}".format(file_path))
-        with PathManager.open(file_path, "w") as f:
-            f.write(json.dumps({'boxes': list_box_per_arng}))
-            f.flush()
+            file_path = os.path.join(self._output_dir, "box_dict.json")
+            self._logger.info("Saving results per box to {}".format(file_path))
+            with PathManager.open(file_path, "w") as f:
+                f.write(json.dumps({'boxes': list_box_per_arng}))
+                f.flush()
 
-        results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])
-        box_table = tabulate(
-            results_2d,
-            tablefmt="pipe",
-            floatfmt=".3f",
-            headers=["level", "mean", "std"] * (N_COLS // 2),
-            numalign="left",
-        )
+            results_2d = itertools.zip_longest(*[results_flatten[i::N_COLS] for i in range(N_COLS)])
+            box_table = tabulate(
+                results_2d,
+                tablefmt="pipe",
+                floatfmt=".3f",
+                headers=["level", "mean", "std"] * (N_COLS // 2),
+                numalign="left",
+            )
+            self._logger.info("\n" + box_table + "\n")
 
         self._logger.info("Per-category {} AP: \n".format(iou_type) + table)
-        self._logger.info("\n" + box_table)
 
         results.update({"AP-" + name: ap for name, ap in results_per_category})
 
@@ -648,8 +649,7 @@ def _evaluate_predictions_on_coco(
         pass
 
     coco_dt = coco_gt.loadRes(coco_results)
-    #use_fast_impl = False
-    coco_eval = (COCOeval_opt if use_fast_impl else COCOeval)(coco_gt, coco_dt, iou_type)
+    coco_eval = (COCOeval_opt if use_fast_impl else COCOeval_custom)(coco_gt, coco_dt, iou_type)
 
     if iou_type == "keypoints":
         # Use the COCO default keypoint OKS sigmas unless overrides are specified

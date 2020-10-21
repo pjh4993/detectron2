@@ -7,7 +7,7 @@ from collections import defaultdict
 from . import mask as maskUtils
 import copy
 
-class COCOeval:
+class COCOeval_custom:
     # Interface for evaluating detection on the Microsoft COCO dataset.
     #
     # The usage for CocoEval is as follows:
