@@ -134,7 +134,8 @@ class IRNet(nn.Module):
                         recall = gt_labels[pred_cls].sum() / gt_labels.nonzero().shape[0]
                         storage.put_scalar("precision", precision)
                         storage.put_scalar("recall", recall)
-                        storage.put_scalar("f1 score", 2 * precision * recall / (precision + recall))
+                        storage.put_scalar("f1 score", 2 * precision * recall / (precision + recall + 1e-5))
+                        self.visualize_training(batched_inputs, features, gt_labels_list)
 
                 return {
                     "loss_cls" : loss
@@ -154,14 +155,14 @@ class IRNet(nn.Module):
             peak_response_map = self.peak_response_head(class_response_map)
             displacement_map = self.displacement_head(features)
             class_boundary_map = self.class_boundary_head(features)
-
+ 
             #mask class response map with fg, bg threshold
             fg_CAM = class_response_map * (class_response_map > self.fg_threshold)
             bg_CAM = class_response_map * (class_response_map < self.bg_threshold)
 
             return 1
 
-    def visualize_training(self, batched_inputs, results):
+    def visualize_training(self, batched_inputs, features, labels):
         """
         A function used to visualize ground truth images and final network predictions.
         It shows ground truth bounding boxes on the original image and up to 20
@@ -173,27 +174,27 @@ class IRNet(nn.Module):
         """
         from detectron2.utils.visualizer import Visualizer
 
-        assert len(batched_inputs) == len(
-            results
-        ), "Cannot visualize inputs and results of different sizes"
+        assert len(batched_inputs) == len(labels), "Cannot visualize inputs and results of different sizes"
         storage = get_event_storage()
-        max_boxes = 20
 
         image_index = 0  # only visualize a single image
         img = batched_inputs[image_index]["image"]
         img = convert_image_to_rgb(img.permute(1, 2, 0), self.input_format)
         v_gt = Visualizer(img, None)
+        class_response_map = F.relu(F.conv2d(features[image_index:image_index+1],self.classification_head.weight))
+        valid_cat = labels[image_index]
+        class_response_map = class_response_map[:,valid_cat,:,:]
+        class_response_map /= F.adaptive_max_pool2d(class_response_map, (1, 1)) + 1e-5
+
         v_gt = v_gt.overlay_instances(boxes=batched_inputs[image_index]["instances"].gt_boxes)
         anno_img = v_gt.get_image()
-        processed_results = detector_postprocess(results[image_index], img.shape[0], img.shape[1])
-        predicted_boxes = processed_results.pred_boxes.tensor.detach().cpu().numpy()
 
         v_pred = Visualizer(img, None)
-        v_pred = v_pred.overlay_instances(boxes=predicted_boxes[0:max_boxes])
+        v_pred = v_pred.overlay_cam(cams=F.interpolate(class_response_map, img.shape[:2], mode='bilinear')[0].cpu(), threshold=0.3)
         prop_img = v_pred.get_image()
         vis_img = np.vstack((anno_img, prop_img))
         vis_img = vis_img.transpose(2, 0, 1)
-        vis_name = f"Top: GT bounding boxes; Bottom: {max_boxes} Highest Scoring Results"
+        vis_name = f"Top: GT bounding boxes; Bottom: CAM result by classifier"
         storage.put_image(vis_name, vis_img)
 
     def preprocess_image(self, batched_inputs):

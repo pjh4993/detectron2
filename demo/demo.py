@@ -6,6 +6,8 @@ import os
 import time
 import cv2
 import tqdm
+import tempfile
+import requests
 
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
@@ -81,6 +83,19 @@ if __name__ == "__main__":
 
     if args.input:
         if len(args.input) == 1:
+            if args.input[0][:4] == 'http':
+                tmp = tempfile.NamedTemporaryFile(mode='wb', suffix='.jpg')
+                response = requests.get(args.input[0], stream=True)
+                assert response.ok is True
+                    
+                try:
+                    for block in response.iter_content(1024):
+                        if not block:
+                            break
+                        tmp.write(block)
+                except:
+                    tmp.close()
+                args.input[0] = tmp.name
             args.input = glob.glob(os.path.expanduser(args.input[0]))
             assert args.input, "The input path(s) was not found"
         for path in tqdm.tqdm(args.input, disable=not args.output):
@@ -120,6 +135,10 @@ if __name__ == "__main__":
                 cv2.imshow(WINDOW_NAME, visualized_output.get_image()[:, :, ::-1])
                 if cv2.waitKey(0) == 27:
                     break  # esc to quit
+            
+            if path[:4] == '/tmp':
+                tmp.close()
+
     elif args.webcam:
         assert args.input is None, "Cannot have both --input and --webcam!"
         assert args.output is None, "output not yet supported with --webcam!"
