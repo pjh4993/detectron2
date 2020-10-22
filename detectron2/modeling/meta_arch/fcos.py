@@ -407,7 +407,7 @@ class FCOS(nn.Module):
         result.scores = scores_all[keep]
         result.pred_classes = class_idxs_all[keep]
         result.level = level_all[keep]
-        result.anchor = anchor_all[keep]
+        #result.anchor = anchor_all[keep]
         return result
 
     def preprocess_image(self, batched_inputs):

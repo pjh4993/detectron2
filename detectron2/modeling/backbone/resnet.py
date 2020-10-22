@@ -379,6 +379,7 @@ class ResNet(Backbone):
         super().__init__()
         self.stem = stem
         self.num_classes = num_classes
+        self.cam = False
 
         current_stride = self.stem.stride
         self._out_feature_strides = {"stem": current_stride}
@@ -436,6 +437,7 @@ class ResNet(Backbone):
             x = stage(x)
             if name in self._out_features:
                 outputs[name] = x
+        
         if self.num_classes is not None:
             x = self.avgpool(x)
             x = torch.flatten(x, 1)

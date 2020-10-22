@@ -53,6 +53,11 @@ def detector_postprocess(results, output_height, output_width, mask_threshold=0.
 
     output_boxes.scale(scale_x, scale_y)
     output_boxes.clip(results.image_size)
+    
+    if results.has("proposals"):
+        output_proposals = results.proposals
+        output_proposals.scale(scale_x, scale_y)
+        output_proposals.clip(results.image_size)
 
     results = results[output_boxes.nonempty()]
 

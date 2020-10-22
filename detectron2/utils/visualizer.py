@@ -370,6 +370,7 @@ class Visualizer:
         levels = predictions.level if predictions.has("level") else None
         anchors = predictions.anchor if predictions.has("anchor") else None
         keypoints = predictions.pred_keypoints if predictions.has("pred_keypoints") else None
+        proposals = predictions.proposals if predictions.has("proposals") else None
 
         if predictions.has("pred_masks"):
             masks = np.asarray(predictions.pred_masks)
@@ -398,6 +399,7 @@ class Visualizer:
             labels=labels,
             levels=levels,
             anchors=anchors,
+            proposals=proposals,
             keypoints=keypoints,
             assigned_colors=colors,
             alpha=alpha,
@@ -550,6 +552,26 @@ class Visualizer:
             self.draw_sem_seg(sem_seg, area_threshold=0, alpha=0.5)
         return self.output
 
+    def overlay_cam(
+        self,
+        *,
+        cams=None,
+        threshold=0.3,
+        assigned_colors=None,
+        alpha=0.5
+    ):
+        num_instances = cams.shape[0]
+        if assigned_colors is None:
+            assigned_colors = [random_color(rgb=True, maximum=1) for _ in range(num_instances)]
+
+        cam_to_heatmap = []
+        for i in range(num_instances):
+            color = assigned_colors[i]
+            binary_mask, heat_map = self.draw_cam_mask(cams[i], threshold)
+            self.draw_binary_mask(binary_mask,color)       
+
+        return self.output
+
     def overlay_instances(
         self,
         *,
@@ -557,6 +579,7 @@ class Visualizer:
         labels=None,
         levels=None,
         anchors=None,
+        proposals=None,
         masks=None,
         keypoints=None,
         assigned_colors=None,
@@ -595,6 +618,8 @@ class Visualizer:
         if boxes is not None:
             boxes = self._convert_boxes(boxes)
             num_instances = len(boxes)
+        if proposals is not None:
+            proposals = self._convert_boxes(proposals)
         if masks is not None:
             masks = self._convert_masks(masks)
             if num_instances:
@@ -635,11 +660,15 @@ class Visualizer:
             keypoints = keypoints[sorted_idxs] if keypoints is not None else None
             levels = levels[sorted_idxs] if levels is not None else None
             anchors = anchors[sorted_idxs] if anchors is not None else None
+            proposals = proposals[sorted_idxs] if proposals is not None else None
 
         for i in range(num_instances):
             color = assigned_colors[i]
             if boxes is not None:
                 self.draw_box(boxes[i], edge_color=color)
+
+            if proposals is not None:
+                self.draw_box(proposals[i], edge_color=color, line_style=':')
 
             if masks is not None:
                 for segment in masks[i].polygons:
@@ -877,7 +906,7 @@ class Visualizer:
                 fill=False,
                 edgecolor=edge_color,
                 linewidth=linewidth * self.output.scale,
-                alpha=alpha,
+                alpha=alpha * len(line_style),
                 linestyle=line_style,
             )
         )
@@ -986,6 +1015,15 @@ class Visualizer:
             )
         )
         return self.output
+
+    def draw_cam_mask(
+        self, cam_mask, threshold = 0.3
+    ):
+        heat_map = cam_mask.detach().cpu().numpy()
+        binary_heat_map = np.zeros_like(heat_map)
+        binary_heat_map[heat_map > threshold] = 1
+        return binary_heat_map, heat_map
+
 
     def draw_binary_mask(
         self, binary_mask, color=None, *, edge_color=None, text=None, alpha=0.5, area_threshold=0
