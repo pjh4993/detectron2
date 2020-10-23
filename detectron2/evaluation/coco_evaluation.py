@@ -338,7 +338,9 @@ class COCOEvaluator(DatasetEvaluator):
         """
 
         metrics = {
-            "bbox": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
+            #"bbox": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
+            "bbox": ["AP", "AP50", "AP75", "APall", "APsmall", "APlarge", \
+                    "propAP", "propAP50", "propAP75", "propAPall", "propAPsmall", "propAPlarge"],
             "segm": ["AP", "AP50", "AP75", "APs", "APm", "APl"],
             "keypoints": ["AP", "AP50", "AP75", "APm", "APl"],
         }[iou_type]
@@ -367,6 +369,7 @@ class COCOEvaluator(DatasetEvaluator):
         # Compute per-category AP
         # from https://github.com/facebookresearch/Detectron/blob/a6a835f5b8208c45d0dce217ce9bbda915f44df7/detectron/datasets/json_dataset_evaluator.py#L222-L252 # noqa
         precisions = coco_eval.eval["precision"]
+        #prop_precisions = coco_eval.peval["precision"]
         # precision has dims (iou, recall, cls, area range, max dets)
         assert len(class_names) == precisions.shape[2]
 
@@ -375,7 +378,7 @@ class COCOEvaluator(DatasetEvaluator):
             # area range index 0: all area ranges
             # max dets index -1: typically 100 per image
             for arng_idx, rng_name in enumerate(arng_names):
-                precision = precisions[:, :, idx, arng_idx, 0, 0,-1] if len(precisions.shape) > 5 \
+                precision = precisions[:, :, idx, arng_idx, 0,-1] if len(precisions.shape) > 5 \
                     else precisions[:,:,idx, arng_idx, -1]
                 precision = precision[precision > -1]
                 ap = np.mean(precision) if precision.size else float("nan")
@@ -405,6 +408,7 @@ class COCOEvaluator(DatasetEvaluator):
             numalign="left",
         )
 
+        """
         if len(precisions.shape) > 5:
             boxes = coco_eval.eval["boxes"]
             # precision has dims (iou, recall, cls, area range, max dets)
@@ -444,7 +448,7 @@ class COCOEvaluator(DatasetEvaluator):
                 numalign="left",
             )
             self._logger.info("\n" + box_table + "\n")
-
+        """
         self._logger.info("Per-category {} AP: \n".format(iou_type) + table)
 
         results.update({"AP-" + name: ap for name, ap in results_per_category})

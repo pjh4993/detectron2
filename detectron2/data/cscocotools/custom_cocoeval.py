@@ -118,6 +118,7 @@ class COCOeval:
             self._dts[dt['image_id'], dt['category_id']].append(dt)
         self.evalImgs = defaultdict(list)   # per-image per-category evaluation results
         self.eval     = {}                  # accumulated evaluation results
+        self.peval    = {}
 
     def evaluate(self):
         '''
@@ -162,24 +163,24 @@ class COCOeval:
         maxDet = p.maxDets[-1]
         #self.evalImgs = [evaluateImg(imgId, catId=catId, areaRng, boxRng, levelRng, maxDet)
         #self.evalImgs = [evaluateImg(imgId=imgId, catId=catId, aRng=areaRng, boxRng=boxRng, levelRng=levelRng, maxDet=maxDet)
-        self.evalImgs = [evaluateImg(imgId=imgId, catId=catId, cErr=cErr , maxDet=maxDet)
+        self.evalImgs = [evaluateImg(imgId=imgId, catId=catId, aRng=areaRng, cErrRng=cErr , maxDet=maxDet)
                  for catId in catIds
-                 #for areaRng in p.areaRng
+                 for areaRng in p.areaRng
                  #for boxRng in p.boxRng
                  #for levelRng in p.levelRng
                  for cErr in p.centerError
                  for imgId in p.imgIds
              ]
-        self.evalpImgs = [evaluateImg(imgId=imgId, catId=catId, cErr=cErr , maxDet=maxDet, prop=True)
+        self.evalpImgs = [evaluateImg(imgId=imgId, catId=catId, aRng=areaRng, cErrRng=cErr , maxDet=maxDet, prop=True)
                  for catId in catIds
-                 #for areaRng in p.areaRng
+                 for areaRng in p.areaRng
                  #for boxRng in p.boxRng
                  #for levelRng in p.levelRng
                  for cErr in p.centerError
                  for imgId in p.imgIds
              ]
 
-        self.paramsEval = copy.deepcopy(self.params)
+        self._paramsEval = copy.deepcopy(self.params)
         toc = time.time()
         print('DONE (t={:0.2f}s).'.format(toc-tic))
 
@@ -326,12 +327,11 @@ class COCOeval:
         if len(gt) == 0 and len(dt) ==0:
             return None
 
-        if aRng is not None:
-            for g in gt:
-                if g['ignore'] or (g['area']<aRng[0] or g['area']>aRng[1]):
-                    g['_ignore'] = 1
-                else:
-                    g['_ignore'] =  0
+        for g in gt:
+            if g['ignore'] or (g['area']<aRng[0] or g['area']>aRng[1]):
+                g['_ignore'] = 1
+            else:
+                g['_ignore'] =  0
 
         # sort dt highest score first, sort gt ignore last
         gtind = np.argsort([g['_ignore'] for g in gt], kind='mergesort')
@@ -398,16 +398,15 @@ class COCOeval:
                     dtm[tind,dind]  = gt[m]['id']
                     gtm[tind,m]     = d['id']
         # set unmatched detections outside of area range to ignore
-        if aRng is not None:
-            a = np.array([d['area']<aRng[0] or d['area']>aRng[1] for d in dt]).reshape((1, len(dt)))
-            #b = np.array([d['box_area']<boxRng[0] or d['box_area']>boxRng[1] for d in dt]).reshape((1, len(dt)))
-            #a = np.logical_or(a , b)
-            dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.repeat(a,T,0)))
-            # store results for given image and category
+        a = np.array([d['area']<aRng[0] or d['area']>aRng[1] for d in dt]).reshape((1, len(dt)))
+        #b = np.array([d['box_area']<boxRng[0] or d['box_area']>boxRng[1] for d in dt]).reshape((1, len(dt)))
+        #a = np.logical_or(a , b)
+        dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.repeat(a,T,0)))
+        # store results for given image and category
         return {
                 'image_id':     imgId,
                 'category_id':  catId,
-                #'aRng':         aRng,
+                'aRng':         aRng,
                 #'boxRng':       boxRng,
                 #'levelRng':     levelRng,
                 'cErr':         cErr,
@@ -419,7 +418,7 @@ class COCOeval:
                 'dtScores':     [d['score'] for d in dt],
                 'gtIgnore':     gtIg,
                 'dtIgnore':     dtIg,
-                'dtBoxSize':    [d['box_area'] for d in dt],
+                #'dtBoxSize':    [d['box_area'] for d in dt],
             }
 
     def accumulate(self, p = None):
@@ -439,15 +438,12 @@ class COCOeval:
         T           = len(p.iouThrs)
         R           = len(p.recThrs)
         K           = len(p.catIds) if p.useCats else 1
-        #A           = len(p.areaRng)
+        A           = len(p.areaRng)
         #B           = len(p.boxRng)
         #L           = len(p.levelRng)
         C           = len(p.centerError)
         M           = len(p.maxDets)
 
-        precision   = -np.ones((T,R,K,C,M)) # -1 for the precision of absent categories
-        recall      = -np.ones((T,K,C,M))
-        scores      = -np.ones((T,R,K,C,M))
 
         """
         precision   = -np.ones((T,R,K,A,B,L,M)) # -1 for the precision of absent categories
@@ -459,7 +455,7 @@ class COCOeval:
         _pe = self._paramsEval
         catIds = _pe.catIds if _pe.useCats else [-1]
         setK = set(catIds)
-        #setA = set(map(tuple, _pe.areaRng))
+        setA = set(map(tuple, _pe.areaRng))
         #setB = set(map(tuple, _pe.boxRng))
         #setL = set(map(tuple, _pe.levelRng))
         setC = set(map(tuple, _pe.centerError))
@@ -468,142 +464,186 @@ class COCOeval:
         # get inds to evaluate
         k_list = [n for n, k in enumerate(p.catIds)  if k in setK]
         m_list = [m for n, m in enumerate(p.maxDets) if m in setM]
-        #a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
+        a_list = [n for n, a in enumerate(map(lambda x: tuple(x), p.areaRng)) if a in setA]
         #b_list = [n for n, b in enumerate(map(lambda x: tuple(x), p.boxRng)) if b in setB]
         #l_list = [n for n, l in enumerate(map(lambda x: tuple(x), p.levelRng)) if l in setL]
         c_list = [n for n, c in enumerate(map(lambda x: tuple(x), p.centerError)) if c in setC]
         i_list = [n for n, i in enumerate(p.imgIds)  if i in setI]
         I0 = len(_pe.imgIds)
-        #A0 = len(_pe.areaRng)
+        A0 = len(_pe.areaRng)
         #B0 = len(_pe.boxRng)
         #L0 = len(_pe.levelRng)
         C0 = len(_pe.centerError)
         # retrieve E at each category, area range, and max number of detections
-        for k, k0 in enumerate(k_list):
-            Nk = k0*C0*I0
-            for c, c0 in enumerate(c_list):
-                Nc = c0*I0
-                """
+        for evalImgs, eval in zip([self.evalImgs, self.evalpImgs], [self.eval, self.peval]):
+            precision   = -np.ones((T,R,K,A,C,M)) # -1 for the precision of absent categories
+            recall      = -np.ones((T,K,A,C,M))
+            scores      = -np.ones((T,R,K,A,C,M))
+
+            for k, k0 in enumerate(k_list):
+                Nk = k0*A0*C0*I0
                 for a, a0 in enumerate(a_list):
-                    Na = a0*B0*L0*I0
-                    for b, b0 in enumerate(b_list):
-                        Nb = b0*L0*I0
-                        for l, l0 in enumerate(l_list):
-                            Nl = l0*I0
-                """
-                for m, maxDet in enumerate(m_list):
-                    #E = [self.evalImgs[Nk + Na + Nb + Nl + i] for i in i_list]
-                    E = [self.evalImgs[Nk + Nc + i] for i in i_list]
-                    E = [e for e in E if not e is None]
-                    if len(E) == 0:
-                        continue
-                    dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
-                    dtBoxes = np.concatenate([e['dtBoxSize'][0:maxDet] for e in E])
+                    Na = a0*C0*I0
+                    """
+                        for b, b0 in enumerate(b_list):
+                            Nb = b0*L0*I0
+                            for l, l0 in enumerate(l_list):
+                                Nl = l0*I0
+                    """
+                    for c, c0 in enumerate(c_list):
+                        Nc = c0*I0
 
-                    # different sorting method generates slightly different results.
-                    # mergesort is used to be consistent as Matlab implementation.
-                    inds = np.argsort(-dtScores, kind='mergesort')
-                    dtScoresSorted = dtScores[inds]
-                    dtBoxesSorted = dtBoxes[inds]
+                        for m, maxDet in enumerate(m_list):
+                            #E = [self.evalImgs[Nk + Na + Nb + Nl + i] for i in i_list]
+                            E = [evalImgs[Nk + Na + Nc + i] for i in i_list]
+                            E = [e for e in E if not e is None]
+                            if len(E) == 0:
+                                continue
+                            dtScores = np.concatenate([e['dtScores'][0:maxDet] for e in E])
+                            #dtBoxes = np.concatenate([e['dtBoxSize'][0:maxDet] for e in E])
 
-                    dtm  = np.concatenate([e['dtMatches'][:,0:maxDet] for e in E], axis=1)[:,inds]
-                    dtIg = np.concatenate([e['dtIgnore'][:,0:maxDet]  for e in E], axis=1)[:,inds]
-                    gtIg = np.concatenate([e['gtIgnore'] for e in E])
-                    npig = np.count_nonzero(gtIg==0 )
-                    if npig == 0:
-                        continue
-                    tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
-                    fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
+                            # different sorting method generates slightly different results.
+                            # mergesort is used to be consistent as Matlab implementation.
+                            inds = np.argsort(-dtScores, kind='mergesort')
+                            dtScoresSorted = dtScores[inds]
+                            #dtBoxesSorted = dtBoxes[inds]
 
-                    tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
-                    fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
-                    for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
-                        tp = np.array(tp)
-                        fp = np.array(fp)
-                        nd = len(tp)
-                        rc = tp / npig
-                        pr = tp / (fp+tp+np.spacing(1))
-                        q  = np.zeros((R,))
-                        ss = np.zeros((R,))
-                        bs = np.zeros((R,))
+                            dtm  = np.concatenate([e['dtMatches'][:,0:maxDet] for e in E], axis=1)[:,inds]
+                            dtIg = np.concatenate([e['dtIgnore'][:,0:maxDet]  for e in E], axis=1)[:,inds]
+                            gtIg = np.concatenate([e['gtIgnore'] for e in E])
+                            npig = np.count_nonzero(gtIg==0 )
+                            if npig == 0:
+                                continue
+                            tps = np.logical_and(               dtm,  np.logical_not(dtIg) )
+                            fps = np.logical_and(np.logical_not(dtm), np.logical_not(dtIg) )
 
-                        if nd:
-                            recall[t,k,a,b,l,m] = rc[-1]
-                        else:
-                            recall[t,k,a,b,l,m] = 0
+                            tp_sum = np.cumsum(tps, axis=1).astype(dtype=np.float)
+                            fp_sum = np.cumsum(fps, axis=1).astype(dtype=np.float)
+                            for t, (tp, fp) in enumerate(zip(tp_sum, fp_sum)):
+                                tp = np.array(tp)
+                                fp = np.array(fp)
+                                nd = len(tp)
+                                rc = tp / npig
+                                pr = tp / (fp+tp+np.spacing(1))
+                                q  = np.zeros((R,))
+                                ss = np.zeros((R,))
+                                bs = np.zeros((R,))
 
-                        # numpy is slow without cython optimization for accessing elements
-                        # use python array gets significant speed improvement
-                        pr = pr.tolist(); q = q.tolist()
+                                if nd:
+                                    #recall[t,k,a,b,l,m] = rc[-1]
+                                    recall[t,k,a,c,m] = rc[-1]
+                                else:
+                                    #recall[t,k,a,b,l,m] = 0
+                                    recall[t,k,a,c,m] = 0
 
-                        for i in range(nd-1, 0, -1):
-                            if pr[i] > pr[i-1]:
-                                pr[i-1] = pr[i]
+                                # numpy is slow without cython optimization for accessing elements
+                                # use python array gets significant speed improvement
+                                pr = pr.tolist(); q = q.tolist()
 
-                        inds = np.searchsorted(rc, p.recThrs, side='left')
-                        try:
-                            for ri, pi in enumerate(inds):
-                                q[ri] = pr[pi]
-                                ss[ri] = dtScoresSorted[pi]
-                                bs[ri] = dtBoxesSorted[pi]
-                        except:
-                            pass
-                        precision[t,:,k,a,b,l,m] = np.array(q)
-                        scores[t,:,k,a,b,l,m] = np.array(ss)
-                        box_size[t,:,k,a,b,l,m] = np.array(bs)
-        self.eval = {
-            'params': p,
-            'counts': [T, R, K, A, B, L, M],
-            'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
-            'precision': precision,
-            'recall':   recall,
-            'scores': scores,
-            'boxes' : box_size,
-        }
-        toc = time.time()
-        print('DONE (t={:0.2f}s).'.format( toc-tic))
+                                for i in range(nd-1, 0, -1):
+                                    if pr[i] > pr[i-1]:
+                                        pr[i-1] = pr[i]
+
+                                inds = np.searchsorted(rc, p.recThrs, side='left')
+                                try:
+                                    for ri, pi in enumerate(inds):
+                                        q[ri] = pr[pi]
+                                        ss[ri] = dtScoresSorted[pi]
+                                        #bs[ri] = dtBoxesSorted[pi]
+                                except:
+                                    pass
+                                """
+                                precision[t,:,k,a,b,l,m] = np.array(q)
+                                scores[t,:,k,a,b,l,m] = np.array(ss)
+                                """
+                                #box_size[t,:,k,a,b,l,m] = np.array(bs)
+                                precision[t,:,k,a,c,m] = np.array(q)
+                                scores[t,:,k,a,c,m] = np.array(ss)
+
+
+            eval['params'] = p
+            eval['counts'] = [T,R,K,C,M]
+            eval['date'] = datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S') 
+            eval['precision'] = precision
+            eval['recall'] = recall
+            eval['scores'] = scores
+
+            """
+            eval = {
+                'params': p,
+                'counts': [T, R, K, C, M],
+                'date': datetime.datetime.now().strftime('%Y-%m-%d %H:%M:%S'),
+                'precision': precision,
+                'recall':   recall,
+                'scores': scores,
+                #'boxes' : box_size,
+            }
+            """
+            toc = time.time()
+            print('DONE (t={:0.2f}s).'.format( toc-tic))
 
     def summarize(self):
         '''
         Compute and display summary metrics for evaluation results.
         Note this functin can *only* be applied on the default parameter setting
         '''
-        def _summarize( ap=1, iouThr=None, areaRng='all', boxRng='all', levelRng='all', maxDets=100 ):
+        def _summarize( ap=1, iouThr=None, areaRng='all', boxRng='all', levelRng='all', cErrRng='all', maxDets=100, prop=False):
             p = self.params
-            iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | box={:>6s} | level={:>6s} | maxDets={:>3d} ] = {:0.3f}'
+            eval = self.eval if prop is False else self.peval
+            #iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | box={:>6s} | level={:>6s} | maxDets={:>3d} ] = {:0.3f}'
+            iStr = ' {:<18} {} @[ IoU={:<9} | area={:>6s} | cErr={:>6s} | maxDets={:>3d} ] = {:0.3f}'
             titleStr = 'Average Precision' if ap == 1 else 'Average Recall'
             typeStr = '(AP)' if ap==1 else '(AR)'
             iouStr = '{:0.2f}:{:0.2f}'.format(p.iouThrs[0], p.iouThrs[-1]) \
                 if iouThr is None else '{:0.2f}'.format(iouThr)
 
             aind = [i for i, aRng in enumerate(p.areaRngLbl) if aRng == areaRng]
-            bind = [i for i, bRng in enumerate(p.boxRngLbl) if bRng == boxRng]
-            lind = [i for i, lRng in enumerate(p.levelRngLbl) if lRng == levelRng]
+            #bind = [i for i, bRng in enumerate(p.boxRngLbl) if bRng == boxRng]
+            #lind = [i for i, lRng in enumerate(p.levelRngLbl) if lRng == levelRng]
+            cind = [i for i, cRng in enumerate(p.centerErrorLbl) if cRng == cErrRng]
             mind = [i for i, mDet in enumerate(p.maxDets) if mDet == maxDets]
             if ap == 1:
                 # dimension of precision: [TxRxKxAxM]
-                s = self.eval['precision']
+                #s = self.eval['precision']
+                s = eval['precision']
                 # IoU
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,:,aind, bind, lind,mind]
+                #s = s[:,:,:,aind, bind, lind,mind]
+                s = s[:,:,:, aind,cind,mind]
             else:
                 # dimension of recall: [TxKxAxM]
-                s = self.eval['recall']
+                #s = self.eval['recall']
+                s = eval['recall']
                 if iouThr is not None:
                     t = np.where(iouThr == p.iouThrs)[0]
                     s = s[t]
-                s = s[:,:,aind, bind, mind]
+                #s = s[:,:,aind,bind,lind, mind]
+                s = s[:,:, aind, cind, mind]
             if len(s[s>-1])==0:
                 mean_s = -1
             else:
                 mean_s = np.mean(s[s>-1])
-            print(iStr.format(titleStr, typeStr, iouStr, areaRng, boxRng, levelRng, maxDets, mean_s))
+            #print(iStr.format(titleStr, typeStr, iouStr, areaRng, boxRng, levelRng, maxDets, mean_s))
+            print(iStr.format(titleStr, typeStr, iouStr, areaRng, cErrRng, maxDets, mean_s))
             return mean_s
         def _summarizeDets():
-            stats = np.zeros((26,))
+            stats = np.zeros((12,))
             stats[0] = _summarize(1)
+            stats[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2])
+            stats[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2])
+            stats[3] = _summarize(1, cErrRng='all', maxDets=self.params.maxDets[2])
+            stats[4] = _summarize(1, cErrRng='small', maxDets=self.params.maxDets[2])
+            stats[5] = _summarize(1, cErrRng='large', maxDets=self.params.maxDets[2])
+            stats[6] = _summarize(1, prop=True)
+            stats[7] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2], prop=True)
+            stats[8] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2], prop=True)
+            stats[9] = _summarize(1, cErrRng='all', maxDets=self.params.maxDets[2], prop=True)
+            stats[10] = _summarize(1, cErrRng='small', maxDets=self.params.maxDets[2], prop=True)
+            stats[11] = _summarize(1, cErrRng='large', maxDets=self.params.maxDets[2], prop=True)
+
+            """
             stats[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2])
             stats[3] = _summarize(1, iouThr=.80, maxDets=self.params.maxDets[2])
@@ -629,7 +669,7 @@ class COCOeval:
             stats[23] = _summarize(1, areaRng='large', boxRng='small', maxDets=self.params.maxDets[2])
             stats[24] = _summarize(1, areaRng='large', boxRng='medium', maxDets=self.params.maxDets[2])
             stats[25] = _summarize(1, areaRng='large', boxRng='large', maxDets=self.params.maxDets[2])
-
+            """
             return stats
         def _summarizeKps():
             stats = np.zeros((10,))
