@@ -693,7 +693,8 @@ _C.TEST.AUG.FLIP = True
 _C.TEST.PRECISE_BN = CN({"ENABLED": False})
 _C.TEST.PRECISE_BN.NUM_ITER = 200
 
-_C.TEST.FAST_IMPL = True
+_C.TEST.USE_FAST_IMPL = True
+_C.TEST.USE_CUSTOM_COCO = False
 
 # ---------------------------------------------------------------------------- #
 # Misc options

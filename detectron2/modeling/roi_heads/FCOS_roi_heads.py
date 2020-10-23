@@ -170,10 +170,10 @@ class FCOSROIHeads(StandardROIHeads):
             pred_instances, _ = self.box_predictor.inference(predictions, proposals)
             return pred_instances, losses
         else:
-            pred_instances, _ = self.box_predictor.inference(predictions, proposals, level_assignment, self.pooler_scales)
+            pred_instances, _ = self.box_predictor.inference(predictions, proposals)
             return pred_instances
 
-def fcos_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image, level_assignment_list=None, box_area_list=None, proposals=None):
+def fcos_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image, proposals):
     """
     Call `fast_rcnn_inference_single_image` for all images.
 
@@ -199,25 +199,17 @@ def fcos_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, t
         kept_indices: (list[Tensor]): A list of 1D tensor of length of N, each element indicates
             the corresponding boxes/scores index in [0, Ri) from the input, for image i.
     """
-    if level_assignment_list is None:
-        result_per_image = [
-            fcos_rcnn_inference_single_image(
-                boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
-            )
-            for scores_per_image, boxes_per_image, image_shape in zip(scores, boxes, image_shapes)
-        ]
-    else:
-        result_per_image = [
-            fcos_rcnn_inference_single_image(
-                boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image, level_assignment, box_area, proposal
-            )
-            for scores_per_image, boxes_per_image, image_shape, level_assignment, box_area, proposal in zip(scores, boxes, image_shapes, level_assignment_list, box_area_list, proposals)
-        ]
+    result_per_image = [
+        fcos_rcnn_inference_single_image(
+            boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image, proposal
+        )
+        for scores_per_image, boxes_per_image, image_shape, proposal in zip(scores, boxes, image_shapes, proposals)
+    ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
 
 def fcos_rcnn_inference_single_image(
-    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image, level_assignment=None, box_area=None, proposal=None
+    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image, proposal
 ):
     """
     Single-image inference. Return bounding-box detection results by thresholding
@@ -258,17 +250,15 @@ def fcos_rcnn_inference_single_image(
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
     boxes, scores, filter_inds = boxes[keep], scores[keep], filter_inds[keep]
-    box_area = box_area[filter_inds[:,0]]
-    level_assignment = level_assignment[filter_inds[:,0]]
-    proposal = proposal.tensor[filter_inds[:,0]]
 
     result = Instances(image_shape)
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
-    result.box_area = box_area
-    result.level = level_assignment
-    result.proposals = Boxes(proposal)
+    result.level = proposal.level[filter_inds[:,0]]
+    result.anchors = Boxes(proposal.anchor[filter_inds[:,0]])
+    result.centerness = proposal.centerness[filter_inds[:,0]]
+    result.proposal_boxes = proposal.proposal_boxes[filter_inds[:,0]]
 
     return result, filter_inds[:, 0]
 
@@ -303,7 +293,7 @@ class FCOSRCNNOutputLayers(FastRCNNOutputLayers):
         proposal_deltas = self.bbox_pred(box_subnet)
         return scores, proposal_deltas
 
-    def inference(self, predictions, proposals, level_assignment=None, pooler_scales=None):
+    def inference(self, predictions, proposals):
         """
         Args:
             predictions: return values of :meth:`forward()`.
@@ -317,27 +307,16 @@ class FCOSRCNNOutputLayers(FastRCNNOutputLayers):
         boxes = self.predict_boxes(predictions, proposals)
         scores = self.predict_probs(predictions, proposals)
         image_shapes = [x.image_size for x in proposals]
-        level_assignment_list = []
-        if level_assignment is not None:
-            st = 0 
-            for i in range(len(boxes)):
-                level_assignment_list.append(level_assignment[st:st+len(boxes[i])])
-                st += len(boxes[i])
         
+        """
         box_area_list = []
         if pooler_scales is not None:
-            st = 0
             for i in range(len(level_assignment_list)):
                 pooler_scale_per_box = torch.tensor([pooler_scales[int(level_assignment_list[i][idx].item())] 
                     for idx in range(level_assignment_list[i].shape[0])], device=boxes[0].device)
                 featured_box = (boxes[i] * pooler_scale_per_box.view(-1, 1))
                 box_area_list.append((featured_box[:,2] - featured_box[:,0]) * (featured_box[:,3] - featured_box[:,1]))
-
-        proposal_list = []
-        if proposals is not None:
-            st = 0
-            for i in range(len(level_assignment_list)):
-                proposal_list.append(proposals[i].proposal_boxes)
+        """
 
         return fcos_rcnn_inference(
             boxes,
@@ -346,7 +325,5 @@ class FCOSRCNNOutputLayers(FastRCNNOutputLayers):
             self.test_score_thresh,
             self.test_nms_thresh,
             self.test_topk_per_image,
-            level_assignment_list,
-            box_area_list,
-            proposal_list,
+            proposals,
         )

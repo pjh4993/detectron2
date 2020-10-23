@@ -12,8 +12,8 @@ from collections import OrderedDict
 import pycocotools.mask as mask_util
 import torch
 from fvcore.common.file_io import PathManager
-from pycocotools.coco import COCO
-from pycocotools.cocoeval import COCOeval
+from pycocotools.coco import COCO as COCO_origin
+from pycocotools.cocoeval import COCOeval as COCOeval_origin
 from tabulate import tabulate
 
 import detectron2.utils.comm as comm
@@ -24,8 +24,10 @@ from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
 
 from .evaluator import DatasetEvaluator
-from .custom_eval_api import COCOeval_custom
+from detectron2.data.cscocotools import COCOeval as COCOeval_custom, COCO as COCO_custom
 
+COCOeval = None
+COCO = None
 
 class COCOEvaluator(DatasetEvaluator):
     """
@@ -38,7 +40,7 @@ class COCOEvaluator(DatasetEvaluator):
     instance segmentation, or keypoint detection dataset.
     """
 
-    def __init__(self, dataset_name, cfg, distributed, output_dir=None, *, use_fast_impl=True):
+    def __init__(self, dataset_name, cfg, distributed, output_dir=None, *, use_fast_impl=True, use_custom_coco=False):
         """
         Args:
             dataset_name (str): name of the dataset to be evaluated.
@@ -68,11 +70,19 @@ class COCOEvaluator(DatasetEvaluator):
         self._distributed = distributed
         self._output_dir = output_dir
         self._use_fast_impl = use_fast_impl
+        self._use_custom_coco = use_custom_coco
+
 
         self._cpu_device = torch.device("cpu")
         self._logger = logging.getLogger(__name__)
 
         self._metadata = MetadataCatalog.get(dataset_name)
+
+        if self._use_custom_coco:
+            COCO = COCO_custom
+        else:
+            COCO = COCO_origin
+
         if not hasattr(self._metadata, "json_file"):
             self._logger.info(
                 f"'{dataset_name}' is not registered by `register_coco_instances`."
@@ -463,10 +473,18 @@ def instances_to_coco_json(instances, img_id):
     boxes = boxes.tolist()
     scores = instances.scores.tolist()
     classes = instances.pred_classes.tolist()
+    anchors = instances.anchors.get_centers().tolist()
+    centerness = instances.centerness.tolist()
+    proposal_boxes = instances.proposal_boxes.tensor.numpy()
+    proposal_boxes = BoxMode.convert(proposal_boxes, BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
+    proposal_boxes = proposal_boxes.tolist()
+    
+
     if 'box_area' in instances.get_fields().keys():
         box_area = instances.box_area.tolist()
     else:
         box_area = [3 ** 2] * len(classes)
+
     if 'level_assignment' in instances.get_fields().keys():
         level = instances.level_assignment.tolist()
     else:
@@ -499,7 +517,10 @@ def instances_to_coco_json(instances, img_id):
             "bbox": boxes[k],
             "score": scores[k],
             "level": level[k],
-            "box_area" : box_area[k]
+            "box_area" : box_area[k],
+            "anchor" : anchors[k],
+            "centerness" : centerness[k],
+            "proposal_boxes" : proposal_boxes[k]
         }
         if has_mask:
             result["segmentation"] = rles[k]
@@ -629,7 +650,7 @@ def _evaluate_box_proposals(dataset_predictions, coco_api, thresholds=None, area
 
 
 def _evaluate_predictions_on_coco(
-    coco_gt, coco_results, iou_type, kpt_oks_sigmas=None, use_fast_impl=True
+    coco_gt, coco_results, iou_type, kpt_oks_sigmas=None, use_fast_impl=True,
 ):
     """
     Evaluate the coco results using COCOEval API.

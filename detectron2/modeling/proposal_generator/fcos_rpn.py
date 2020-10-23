@@ -394,6 +394,7 @@ class FCOSRPN(nn.Module):
         level_all = []
         objectness_all = []
         anchor_all = []
+        centerness_all = []
 
         # Iterate over every feature level
         for box_cls_i, box_reg_i, anchors_i, centerness_i, curr_level in zip(box_cls, box_delta, anchors, centerness, torch.arange(len(self.feature_size),dtype=torch.long)):
@@ -419,6 +420,7 @@ class FCOSRPN(nn.Module):
 
             box_reg_i = box_reg_i[anchor_idxs]
             anchors_i = anchors_i[anchor_idxs]
+            centerness_i = centerness_i[anchor_idxs]
             box_level_i = torch.ones((anchors_i.tensor.shape[0]), device=box_reg_i.device) * curr_level
             # predict boxes
             predicted_boxes = self.box2box_transform.apply_densebox_deltas(box_reg_i, anchors_i.get_centers().repeat(1,2), curr_level)
@@ -429,10 +431,11 @@ class FCOSRPN(nn.Module):
             objectness_all.append((predicted_prob / (1 - predicted_prob)).log())
             class_idxs_all.append(classes_idxs)
             level_all.append(box_level_i)
-            anchor_all.append(anchors_i.get_centers())
+            anchor_all.append(anchors_i.tensor)
+            centerness_all.append(centerness_i)
 
-        boxes_all, scores_all, class_idxs_all, level_all, objectness_all, anchor_all = [
-            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all, objectness_all, anchor_all]
+        boxes_all, scores_all, class_idxs_all, level_all, objectness_all, anchor_all, centerness_all = [
+            cat(x) for x in [boxes_all, scores_all, class_idxs_all, level_all, objectness_all, anchor_all, centerness_all]
         ]
         keep = batched_nms(boxes_all, scores_all, class_idxs_all, self.nms_threshold)
         keep = keep[: self.max_detections_per_image]
@@ -448,6 +451,8 @@ class FCOSRPN(nn.Module):
         proposal.proposal_boxes = Boxes(boxes_all[keep])
         proposal.objectness_logits = objectness_all[keep]
         proposal.level = level_all[keep]
+        proposal.anchor = anchor_all[keep]
+        proposal.centerness = centerness_all[keep]
 
         return result, proposal
 

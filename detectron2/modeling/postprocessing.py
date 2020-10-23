@@ -46,19 +46,19 @@ def detector_postprocess(results, output_height, output_width, mask_threshold=0.
     )
     results = Instances((output_height, output_width), **results.get_fields())
 
+    boxes = ['proposal_boxes', 'anchors']
+
+    for box_name in boxes:
+        if results.has(box_name):
+            output_boxes = results.get(box_name)
+            output_boxes.scale(scale_x, scale_y)
+
     if results.has("pred_boxes"):
         output_boxes = results.pred_boxes
-    elif results.has("proposal_boxes"):
-        output_boxes = results.proposal_boxes
 
     output_boxes.scale(scale_x, scale_y)
     output_boxes.clip(results.image_size)
-    
-    if results.has("proposals"):
-        output_proposals = results.proposals
-        output_proposals.scale(scale_x, scale_y)
-        output_proposals.clip(results.image_size)
-
+   
     results = results[output_boxes.nonempty()]
 
     if results.has("pred_masks"):

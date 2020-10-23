@@ -48,7 +48,7 @@ class COCOeval_opt(COCOeval):
         self.ious = {
             (imgId, catId): computeIoU(imgId, catId) for imgId in p.imgIds for catId in catIds
         }
-
+ 
         maxDet = p.maxDets[-1]
 
         # <<<< Beginning of code differences with original COCO API
