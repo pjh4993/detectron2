@@ -174,8 +174,8 @@ class FCOS(nn.Module):
         if self.training:
             assert "instances" in batched_inputs[0], "Instance annotations are missing in training!"
             gt_instances = [x["instances"].to(self.device) for x in batched_inputs]
-            gt_labels, gt_boxes, gt_id = self.label_anchors(anchors, gt_instances)
-            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_id)
+            gt_labels, gt_boxes = self.label_anchors(anchors, gt_instances)
+            losses = self.losses(anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness)
 
             if self.vis_period > 0:
                 storage = get_event_storage()
@@ -198,7 +198,7 @@ class FCOS(nn.Module):
                 processed_results.append({"instances": r})
             return processed_results
 
-    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness, gt_id):
+    def losses(self, anchors, pred_logits, gt_labels, pred_densebox_regress, gt_boxes, pred_centerness):
         """
         Args:
             anchors (list[Boxes]): a list of #feature level Boxes
@@ -313,9 +313,9 @@ class FCOS(nn.Module):
         """
         #anchors = Boxes.cat(anchors)  # Rx4
 
-        gt_labels, matched_gt_boxes, gt_id = self.anchor_matcher(gt_instances, anchors)
+        gt_labels, matched_gt_boxes = self.anchor_matcher(gt_instances, anchors)
 
-        return gt_labels, matched_gt_boxes , gt_id
+        return gt_labels, matched_gt_boxes
 
     def inference(self, anchors, pred_logits, pred_densebox_regress, pred_centerness, image_sizes):
         """
