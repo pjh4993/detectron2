@@ -5,6 +5,7 @@ import datetime
 import time
 from collections import defaultdict
 import pycocotools.mask as maskUtils
+import torch
 #from . import mask as maskUtils
 import copy
 
@@ -77,6 +78,10 @@ class COCOeval:
         self._paramsEval = {}               # parameters for evaluation
         self.stats = []                     # result summarization
         self.ious = {}                      # ious between all gts and dts
+        self.pious = {}                      # ious between all gts and dts
+        self.cErr = {}                      # ious between all gts and dts
+        self.score_tag = {}                      # ious between all gts and dts
+        self.pscore_tag = {}                      # ious between all gts and dts
         if not cocoGt is None:
             self.params.imgIds = sorted(cocoGt.getImgIds())
             self.params.catIds = sorted(cocoGt.getCatIds())
@@ -158,6 +163,15 @@ class COCOeval:
         self.cErr = {(imgId, catId): self.computeGTCenterness(imgId, catId) \
                         for imgId in p.imgIds
                         for catId in catIds}
+
+        self.score_tag = {(imgId, catId): self.computeScore(imgId, catId, self.ious[(imgId, catId)]) \
+                        for imgId in p.imgIds
+                        for catId in catIds}
+
+        self.pscore_tag = {(imgId, catId): self.computeScore(imgId, catId, self.ious[(imgId, catId)], prop=True) \
+                        for imgId in p.imgIds
+                        for catId in catIds}
+
 
         evaluateImg = self.evaluateImg
         maxDet = p.maxDets[-1]
@@ -256,7 +270,7 @@ class COCOeval:
         ltrb = g + da
         
         #invalid_mask = ((ltrb < 0).sum(axis=2) != 0)
-        ltrb[ltrb < 0] = 1e-5
+        ltrb[ltrb < 0] = 0
         lr = ltrb[:,:,[0,2]]
         tb = ltrb[:,:,[1,3]]
         gc = np.sqrt((lr.min(axis=2) / lr.max(axis=2)) * (tb.min(axis=2) / tb.max(axis=2)))
@@ -264,10 +278,39 @@ class COCOeval:
         dc = np.array(dc)
         dc = np.expand_dims(dc, axis=1).repeat(gc.shape[1],axis=1)
 
-        curr_loss = (gc*np.log(dc) + (1-gc)*np.log(1-dc))
-        optim_loss = (gc * np.log(gc) + (1 - gc) * np.log(1-gc))
+        gc = torch.tensor(gc)
+        dc = torch.tensor(dc)
+        bceLoss = torch.nn.BCELoss(reduction='none')
+        return (bceLoss(gc, gc) / (bceLoss(dc, gc) +1e-5)).numpy()
 
-        return (optim_loss / curr_loss)
+    def computeScore(self, imgId, catId, ious, prop=False):
+        p = self.params
+        if p.useCats:
+            gt = self._gts[imgId,catId]
+            dt = self._dts[imgId,catId]
+        else:
+            gt = [_ for cId in p.catIds for _ in self._gts[imgId,cId]]
+            dt = [_ for cId in p.catIds for _ in self._dts[imgId,cId]]
+        if len(gt) == 0 and len(dt) ==0:
+            return
+        inds = np.argsort([-d['score'] for d in dt], kind='mergesort')
+        dt = [dt[i] for i in inds]
+        if len(dt) > p.maxDets[-1]:
+            dt=dt[0:p.maxDets[-1]]
+
+        if p.iouType == 'segm':
+            g = [g['segmentation'] for g in gt]
+            d = [d['segmentation'] for d in dt]
+        elif p.iouType == 'bbox':
+            if prop:
+                ds = [d['pscore'] for d in dt]
+            else:
+                ds = [d['score'] for d in dt]
+        else:
+            raise Exception('unknown iouType for iou computation')
+
+        return ds
+        
 
     def computeOks(self, imgId, catId):
         p = self.params
@@ -327,8 +370,15 @@ class COCOeval:
         if len(gt) == 0 and len(dt) ==0:
             return None
 
-        for g in gt:
-            if g['ignore'] or (g['area']<aRng[0] or g['area']>aRng[1]):
+        cErr_ignore = (self.cErr[imgId, catId] < cErrRng[0]) + (self.cErr[imgId, catId] > cErrRng[1])
+        if cErr_ignore.size == 0:
+            cErr_gt_ignore = np.zeros((len(gt)))
+            cErr_dt_ignore = np.zeros((len(dt)))
+        else:
+            cErr_gt_ignore = cErr_ignore.sum(axis=0) == cErr_ignore.shape[0]
+            cErr_dt_ignore = cErr_ignore.sum(axis=1) == cErr_ignore.shape[1]
+        for g, c in zip(gt, cErr_gt_ignore):
+            if g['ignore'] or (g['area']<aRng[0] or g['area']>aRng[1]) or c:
                 g['_ignore'] = 1
             else:
                 g['_ignore'] =  0
@@ -399,10 +449,12 @@ class COCOeval:
                     gtm[tind,m]     = d['id']
         # set unmatched detections outside of area range to ignore
         a = np.array([d['area']<aRng[0] or d['area']>aRng[1] for d in dt]).reshape((1, len(dt)))
+
         #b = np.array([d['box_area']<boxRng[0] or d['box_area']>boxRng[1] for d in dt]).reshape((1, len(dt)))
-        #a = np.logical_or(a , b)
+        a = np.logical_or(a , cErr_dt_ignore.reshape(1, len(dt)))
         dtIg = np.logical_or(dtIg, np.logical_and(dtm==0, np.repeat(a,T,0)))
         # store results for given image and category
+
         return {
                 'image_id':     imgId,
                 'category_id':  catId,
@@ -629,19 +681,21 @@ class COCOeval:
             print(iStr.format(titleStr, typeStr, iouStr, areaRng, cErrRng, maxDets, mean_s))
             return mean_s
         def _summarizeDets():
-            stats = np.zeros((12,))
+            stats = np.zeros((14,))
             stats[0] = _summarize(1)
             stats[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2])
             stats[2] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2])
             stats[3] = _summarize(1, cErrRng='all', maxDets=self.params.maxDets[2])
             stats[4] = _summarize(1, cErrRng='small', maxDets=self.params.maxDets[2])
-            stats[5] = _summarize(1, cErrRng='large', maxDets=self.params.maxDets[2])
-            stats[6] = _summarize(1, prop=True)
-            stats[7] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2], prop=True)
-            stats[8] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2], prop=True)
-            stats[9] = _summarize(1, cErrRng='all', maxDets=self.params.maxDets[2], prop=True)
-            stats[10] = _summarize(1, cErrRng='small', maxDets=self.params.maxDets[2], prop=True)
-            stats[11] = _summarize(1, cErrRng='large', maxDets=self.params.maxDets[2], prop=True)
+            stats[5] = _summarize(1, cErrRng='medium', maxDets=self.params.maxDets[2])
+            stats[6] = _summarize(1, cErrRng='large', maxDets=self.params.maxDets[2])
+            stats[7] = _summarize(1, prop=True)
+            stats[8] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2], prop=True)
+            stats[9] = _summarize(1, iouThr=.75, maxDets=self.params.maxDets[2], prop=True)
+            stats[10] = _summarize(1, cErrRng='all', maxDets=self.params.maxDets[2], prop=True)
+            stats[11] = _summarize(1, cErrRng='small', maxDets=self.params.maxDets[2], prop=True)
+            stats[12] = _summarize(1, cErrRng='medium', maxDets=self.params.maxDets[2], prop=True)
+            stats[13] = _summarize(1, cErrRng='large', maxDets=self.params.maxDets[2], prop=True)
 
             """
             stats[1] = _summarize(1, iouThr=.5, maxDets=self.params.maxDets[2])
@@ -711,8 +765,8 @@ class Params:
         self.areaRngLbl = ['all', 'small', 'medium', 'large']
         self.boxRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 4 ** 2], [4 ** 2, 8 ** 2], [8 **2, 1e5 ** 2]]
         self.boxRngLbl = ['all', 'small', 'medium', 'large']
-        self.centerError = [[0, 1e0], [0, 1e-1], [1e-1,1e0]]
-        self.centerErrorLbl = ['all', 'small', 'large']
+        self.centerError = [[0, 1e0],[0,7e-1],[7e-1, 90e-2], [90e-2,1e0]]
+        self.centerErrorLbl = ['all', 'small', 'medium', 'large']
         self.levelRng = [[0, 5], [0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
         self.levelRngLbl = ['all', 'lvl 0', 'lvl 1', 'lvl 2', 'lvl 3', 'lvl 4']
         self.useCats = 1

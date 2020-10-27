@@ -210,9 +210,6 @@ class FCOSMatcher(object):
             reg_targets_per_level /= self.fpn_stride[level]
             reg_targets_level_first.append(reg_targets_per_level)
 
-            
-
-
         return labels_level_first, reg_targets_level_first
 
     def get_sample_region(self, gt, strides, num_points_per, gt_xs, gt_ys, radius=1.0):

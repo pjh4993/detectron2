@@ -259,6 +259,7 @@ def fcos_rcnn_inference_single_image(
     result.anchors = Boxes(proposal.anchor[filter_inds[:,0]])
     result.centerness = proposal.centerness[filter_inds[:,0]]
     result.proposal_boxes = proposal.proposal_boxes[filter_inds[:,0]]
+    result.pscores = proposal.objectness_logits[filter_inds[:,0]].sigmoid()
 
     return result, filter_inds[:, 0]
 

@@ -3,7 +3,7 @@ import math
 import numpy as np
 from typing import List
 import torch
-from fvcore.nn import sigmoid_focal_loss_jit, smooth_l1_loss
+from fvcore.nn import sigmoid_focal_loss_jit, smooth_l1_loss, giou_loss
 from torch import nn
 from torch.nn import functional as F
 
@@ -220,20 +220,32 @@ class RetinaNet(nn.Module):
         gt_labels_target = F.one_hot(gt_labels[valid_mask], num_classes=self.num_classes + 1)[
             :, :-1
         ]  # no loss for the last (background) class
+
         loss_cls = sigmoid_focal_loss_jit(
             cat(pred_logits, dim=1)[valid_mask],
             gt_labels_target.to(pred_logits[0].dtype),
             alpha=self.focal_loss_alpha,
             gamma=self.focal_loss_gamma,
-            reduction="sum",
+            reduction="None",
         )
 
+        loss_cls[pos_mask[valid_mask]]
         loss_box_reg = smooth_l1_loss(
             cat(pred_anchor_deltas, dim=1)[pos_mask],
             gt_anchor_deltas[pos_mask],
             beta=self.smooth_l1_loss_beta,
-            reduction="sum",
+            reduction="None",
         )
+
+        cls_weight = loss_box_reg.sum(axis=1).detach()
+        reg_weight = loss_cls.sum(axis=1).detach()
+
+        loss_cls[pos_mask[valid_mask]] = cls_weight.reshape(-1, 1) * loss_cls[pos_mask[valid_mask]]
+        loss_box_reg = reg_weight[pos_mask[valid_mask]].reshape(-1, 1) * loss_box_reg
+
+        loss_cls = loss_cls.sum()
+        loss_box_reg = loss_box_reg.sum()
+
         return {
             "loss_cls": loss_cls / self.loss_normalizer,
             "loss_box_reg": loss_box_reg / self.loss_normalizer,

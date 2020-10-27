@@ -250,4 +250,4 @@ class ROIPooler(nn.Module):
             pooler_fmt_boxes_level = pooler_fmt_boxes[inds]
             output[inds] = pooler(x[level], pooler_fmt_boxes_level)
 
-        return output, level_assignments
+        return output#, level_assignments

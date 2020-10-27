@@ -156,7 +156,7 @@ def inference_on_dataset(model, data_loader, evaluator):
                     ),
                     n=5,
                 )
-            break
+            #break
 
     # Measure the time only for this worker (before the synchronization barrier)
     total_time = time.perf_counter() - start_time
