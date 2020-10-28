@@ -322,6 +322,7 @@ class RetinaNet(nn.Module):
         boxes_all = []
         scores_all = []
         class_idxs_all = []
+        anchors_all = []
 
         # Iterate over every feature level
         for box_cls_i, box_reg_i, anchors_i in zip(box_cls, box_delta, anchors):
@@ -351,9 +352,10 @@ class RetinaNet(nn.Module):
             boxes_all.append(predicted_boxes)
             scores_all.append(predicted_prob)
             class_idxs_all.append(classes_idxs)
+            anchors_all.append(anchors_i.get_centers())
 
-        boxes_all, scores_all, class_idxs_all = [
-            cat(x) for x in [boxes_all, scores_all, class_idxs_all]
+        boxes_all, scores_all, class_idxs_all, anchors_all = [
+            cat(x) for x in [boxes_all, scores_all, class_idxs_all, anchors_all]
         ]
         keep = batched_nms(boxes_all, scores_all, class_idxs_all, self.nms_threshold)
         keep = keep[: self.max_detections_per_image]
@@ -362,6 +364,8 @@ class RetinaNet(nn.Module):
         result.pred_boxes = Boxes(boxes_all[keep])
         result.scores = scores_all[keep]
         result.pred_classes = class_idxs_all[keep]
+        result.locations = anchors_all[keep]
+        result.centerness = torch.zeros_like(scores_all[keep])
         return result
 
     def preprocess_image(self, batched_inputs):

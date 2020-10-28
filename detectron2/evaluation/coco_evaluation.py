@@ -21,6 +21,7 @@ from detectron2.data.datasets.coco import convert_to_coco_json
 from detectron2.evaluation.fast_eval_api import COCOeval_opt as COCOeval
 from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
+import matplotlib.pyplot as plt
 
 from .evaluator import DatasetEvaluator
 
@@ -118,6 +119,9 @@ class COCOEvaluator(DatasetEvaluator):
                 prediction["instances"] = instances_to_coco_json(instances, input["image_id"])
             if "proposals" in output:
                 prediction["proposals"] = output["proposals"].to(self._cpu_device)
+            if "one_stage_instances" in output:
+                instances = output["one_stage_instances"].to(self._cpu_device)
+                prediction["instances"] = custom_instances_to_coco_json(instances, input["image_id"])
             self._predictions.append(prediction)
 
     def evaluate(self):
@@ -196,6 +200,9 @@ class COCOEvaluator(DatasetEvaluator):
                 coco_eval, task, class_names=self._metadata.get("thing_classes")
             )
             self._results[task] = res
+            self._draw_coco_graph(
+                coco_eval
+            )
 
     def _eval_box_proposals(self, predictions):
         """
@@ -235,6 +242,49 @@ class COCOEvaluator(DatasetEvaluator):
                 res[key] = float(stats["ar"].item() * 100)
         self._logger.info("Proposal metrics: \n" + create_small_table(res))
         self._results["box_proposals"] = res
+
+    def _draw_coco_graph(self, coco_eval):
+        ious = coco_eval.ious
+        dtCtr = coco_eval.dtCtr
+        gtCtr = coco_eval.gtCtr
+        score = coco_eval.dscore
+        
+        iou_list = []
+        iou_score_list = []
+        dtCtr_list = []
+        gtCtr_list = []
+        gtCtr_dtCtr_list = []
+        score_list = []
+
+        for k, iou in ious.items():
+            if len(iou) == 0:
+                continue
+            iou_list.append(iou.flatten())
+            iou_score_list.append(iou.max(axis=1))
+            gtCtr_list.append(gtCtr[k].flatten())
+            gtCtr_dtCtr_list.append(gtCtr[k].max(axis=1))
+            dtCtr_list.append(dtCtr[k].flatten())
+            score_list.append(score[k].flatten())
+        
+        iou_list = np.concatenate(iou_list)
+        iou_score_list = np.concatenate(iou_score_list)
+        dtCtr_list = np.concatenate(dtCtr_list)
+        gtCtr_list = np.concatenate(gtCtr_list)
+        gtCtr_dtCtr_list = np.concatenate(gtCtr_dtCtr_list)
+        score_list = np.concatenate(score_list)
+
+        fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(20, 20))
+        ax[0,0].scatter(gtCtr_list, iou_list, s=2)
+        ax[0,0].set_title("x : GTctrness, y : IoU")
+        ax[0,1].scatter(score_list, iou_score_list, s=2)
+        ax[0,1].set_title("x : DTscore, y : IoU")
+        ax[1,0].scatter(gtCtr_dtCtr_list, dtCtr_list, s=2)
+        ax[1,0].set_title("x : GTctrness, y : DTctrness")
+        ax[1,1].scatter(dtCtr_list, iou_score_list, s=2)
+        ax[1,1].set_title("x : Dtctrness, y : IoU")
+
+        plt.tight_layout()
+        plt.savefig(os.path.join(self._output_dir, "graph.png"))
 
     def _derive_coco_results(self, coco_eval, iou_type, class_names=None):
         """
@@ -303,6 +353,72 @@ class COCOEvaluator(DatasetEvaluator):
 
         results.update({"AP-" + name: ap for name, ap in results_per_category})
         return results
+
+def custom_instances_to_coco_json(instances, img_id):
+    """
+    Dump an "Instances" object to a COCO-format json that's used for evaluation.
+
+    Args:
+        instances (Instances):
+        img_id (int): the image id
+
+    Returns:
+        list[dict]: list of json annotations in COCO format.
+    """
+    num_instance = len(instances)
+    if num_instance == 0:
+        return []
+
+    boxes = instances.pred_boxes.tensor.numpy()
+    boxes = BoxMode.convert(boxes, BoxMode.XYXY_ABS, BoxMode.XYWH_ABS)
+    boxes = boxes.tolist()
+    scores = instances.scores.tolist()
+    classes = instances.pred_classes.tolist()
+    locations = instances.locations.tolist()
+    pred_centerness = instances.centerness.tolist()
+
+    has_mask = instances.has("pred_masks")
+    if has_mask:
+        # use RLE to encode the masks, because they are too large and takes memory
+        # since this evaluator stores outputs of the entire dataset
+        rles = [
+            mask_util.encode(np.array(mask[:, :, None], order="F", dtype="uint8"))[0]
+            for mask in instances.pred_masks
+        ]
+        for rle in rles:
+            # "counts" is an array encoded by mask_util as a byte-stream. Python3's
+            # json writer which always produces strings cannot serialize a bytestream
+            # unless you decode it. Thankfully, utf-8 works out (which is also what
+            # the pycocotools/_mask.pyx does).
+            rle["counts"] = rle["counts"].decode("utf-8")
+
+    has_keypoints = instances.has("pred_keypoints")
+    if has_keypoints:
+        keypoints = instances.pred_keypoints
+
+    results = []
+    for k in range(num_instance):
+        result = {
+            "image_id": img_id,
+            "category_id": classes[k],
+            "bbox": boxes[k],
+            "score": scores[k],
+            "location": locations[k],
+            "dctrness": pred_centerness[k],
+        }
+        if has_mask:
+            result["segmentation"] = rles[k]
+        if has_keypoints:
+            # In COCO annotations,
+            # keypoints coordinates are pixel indices.
+            # However our predictions are floating point coordinates.
+            # Therefore we subtract 0.5 to be consistent with the annotation format.
+            # This is the inverse of data loading logic in `datasets/coco.py`.
+            keypoints[k][:, :2] -= 0.5
+            result["keypoints"] = keypoints[k].flatten().tolist()
+        results.append(result)
+    return results
+
 
 
 def instances_to_coco_json(instances, img_id):

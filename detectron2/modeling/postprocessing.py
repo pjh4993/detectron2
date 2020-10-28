@@ -56,6 +56,10 @@ def detector_postprocess(results, output_height, output_width, mask_threshold=0.
 
     results = results[output_boxes.nonempty()]
 
+    if results.has("locations"):
+        results.locations[:,0] *= scale_x
+        results.locations[:,1] *= scale_y
+
     if results.has("pred_masks"):
         results.pred_masks = retry_if_cuda_oom(paste_masks_in_image)(
             results.pred_masks[:, 0, :, :],  # N, 1, M, M
