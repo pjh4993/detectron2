@@ -22,6 +22,8 @@ from detectron2.evaluation.fast_eval_api import COCOeval_opt as COCOeval
 from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
 import matplotlib.pyplot as plt
+import pandas as pd
+import seaborn as sns
 
 from .evaluator import DatasetEvaluator
 
@@ -273,18 +275,36 @@ class COCOEvaluator(DatasetEvaluator):
         gtCtr_dtCtr_list = np.concatenate(gtCtr_dtCtr_list)
         score_list = np.concatenate(score_list)
 
+        rgba = np.zeros((iou_score_list.shape[0],4))
+        rgba[:,2] = 1.0 
+        rgba[:,3] = score_list
         fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(20, 20))
-        ax[0,0].scatter(gtCtr_list, iou_list, s=2)
+        ax[0,0].scatter(gtCtr_dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[0,0].set_title("x : GTctrness, y : IoU")
-        ax[0,1].scatter(score_list, iou_score_list, s=2)
+        ax[0,1].scatter(score_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[0,1].set_title("x : DTscore, y : IoU")
-        ax[1,0].scatter(gtCtr_dtCtr_list, dtCtr_list, s=2)
+        ax[1,0].scatter(gtCtr_dtCtr_list, dtCtr_list, s=rgba[:,3]*9, color=rgba)
         ax[1,0].set_title("x : GTctrness, y : DTctrness")
-        ax[1,1].scatter(dtCtr_list, iou_score_list, s=2)
+        ax[1,1].scatter(dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[1,1].set_title("x : Dtctrness, y : IoU")
 
         plt.tight_layout()
         plt.savefig(os.path.join(self._output_dir, "graph.png"))
+
+        """
+        data = np.concatenate((iou_score_list.reshape(-1, 1),
+                dtCtr_list.reshape(-1, 1),
+                gtCtr_dtCtr_list.reshape(-1, 1),
+                score_list.reshape(-1, 1)), axis=1)
+
+        data_df = pd.DataFrame(data=data, columns=["iou", "dtCtr", "gtCtr", "score"])        
+        g = sns.PairGrid(data_df, hue="score")
+        g.map_diag(sns.histplot)
+        g.map_offdiag(sns.scatterplot)
+        g.add_legend()
+        g.savefig(os.path.join(self._output_dir, "sns_graph.png"))
+        """
+
 
     def _derive_coco_results(self, coco_eval, iou_type, class_names=None):
         """
