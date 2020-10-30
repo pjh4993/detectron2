@@ -49,16 +49,12 @@ class COCOeval_opt(COCOeval):
             (imgId, catId): computeIoU(imgId, catId) for imgId in p.imgIds for catId in catIds
         }
 
-        self.gtCtr = {
-            (imgId, catId): self.computeGTCenterness(imgId, catId) for imgId in p.imgIds for catId in catIds
+        self.gtData = {
+            (imgId, catId): self.computeGTData(imgId, catId) for imgId in p.imgIds for catId in catIds
         }
 
-        self.dscore = {
-            (imgId, catId): self.computeDTscore(imgId, catId) for imgId in p.imgIds for catId in catIds
-        }
-
-        self.dtCtr = {
-            (imgId, catId): self.computeDTCenterness(imgId, catId) for imgId in p.imgIds for catId in catIds
+        self.dtData = {
+            (imgId, catId): self.computeDTData(imgId, catId) for imgId in p.imgIds for catId in catIds
         }
 
         maxDet = p.maxDets[-1]
@@ -106,7 +102,7 @@ class COCOeval_opt(COCOeval):
         print("COCOeval_opt.evaluate() finished in {:0.2f} seconds.".format(toc - tic))
         # >>>> End of code differences with original COCO API
 
-    def computeDTscore(self, imgId, catId):
+    def computeDTData(self, imgId, catId):
         p = self.params
         if p.useCats:
             gt = self._gts[imgId,catId]
@@ -125,38 +121,38 @@ class COCOeval_opt(COCOeval):
             g = [g['segmentation'] for g in gt]
             d = [d['segmentation'] for d in dt]
         elif p.iouType == 'bbox':
-            d = [d['score'] for d in dt]
+            dscore = [d['score'] for d in dt]
+            dctr = [d['dctrness'] for d in dt]
+            dbox = [d['bbox'] for d in dt]
+            dloc = [d['location'] for d in dt]
         else:
             raise Exception('unknown iouType for iou computation')
 
-        return np.array(d)
+        if len(dloc) == 0:
+            return np.array([])
 
-    def computeDTCenterness(self, imgId, catId):
-        p = self.params
-        if p.useCats:
-            gt = self._gts[imgId,catId]
-            dt = self._dts[imgId,catId]
-        else:
-            gt = [_ for cId in p.catIds for _ in self._gts[imgId,cId]]
-            dt = [_ for cId in p.catIds for _ in self._dts[imgId,cId]]
-        if len(gt) == 0 and len(dt) ==0:
-            return []
-        inds = np.argsort([-d['score'] for d in dt], kind='mergesort')
-        dt = [dt[i] for i in inds]
-        if len(dt) > p.maxDets[-1]:
-            dt=dt[0:p.maxDets[-1]]
+        dscore = np.array(dscore)
+        dctr = np.array(dctr)
 
-        if p.iouType == 'segm':
-            g = [g['segmentation'] for g in gt]
-            d = [d['segmentation'] for d in dt]
-        elif p.iouType == 'bbox':
-            d = [d['dctrness'] for d in dt]
-        else:
-            raise Exception('unknown iouType for iou computation')
+        g = np.array(dbox)
+        dloc = np.array(dloc)
 
-        return np.array(d)
+        d = np.expand_dims(np.concatenate((dloc, -dloc), axis=1), axis=1)
+        g[:,2:] += g[:,0:2]
+        g[:,0:2] *= -1
+        ltrb = d + g
+        out_idx = (ltrb<0).nonzero()
+        ltrb[ltrb < 0] = 1e-5
+        lr = ltrb[:,:,[0,2]]
+        tb = ltrb[:,:,[1,3]]
+        dpdctr = np.sqrt((lr.min(axis=2) / lr.max(axis=2)) *  (tb.min(axis=2) / tb.max(axis=2)))
 
-    def computeGTCenterness(self, imgId, catId):
+        return np.concatenate(
+            (np.expand_dims(dscore,axis=1), 
+             np.expand_dims(dctr, axis=1), 
+             dpdctr,),axis=1)
+
+    def computeGTData(self, imgId, catId):
         p = self.params
         if p.useCats:
             gt = self._gts[imgId,catId]
@@ -190,13 +186,28 @@ class COCOeval_opt(COCOeval):
         g[:,2:] += g[:,0:2]
         g[:,0:2] *= -1
         ltrb = d + g
+        out_idx = (ltrb<0).nonzero()
         ltrb[ltrb < 0] = 1e-5
         lr = ltrb[:,:,[0,2]]
         tb = ltrb[:,:,[1,3]]
         centerness = np.sqrt((lr.min(axis=2) / lr.max(axis=2)) *  (tb.min(axis=2) / tb.max(axis=2)))
+
+        diag = (lr.sum(axis=2) ** 2 + tb.sum(axis=2) **2)/4
+        anchor_loc = np.concatenate(
+            (np.expand_dims(lr.sum(axis=2)/2 - lr[:,:,0], axis=2), 
+            np.expand_dims(tb.sum(axis=2)/2 - tb[:,:,1], axis=2)),
+            axis=2)
+
+        #anchor_loc /= np.expand_dims(np.linalg.norm(anchor_loc, axis=2),axis=2)
+        diag_rate = (anchor_loc[:,:,0] ** 2 + anchor_loc[:,:,1] **2) / diag
+        diag_pi = np.arctan2(anchor_loc[:,:,1], anchor_loc[:,:,0]) / np.pi
+        diag_pi[diag_pi < 0] += 1
         # compute centerness between each dt's location and gt region
 
-        return centerness
+        return np.concatenate(
+            (np.expand_dims(centerness,axis=2), 
+             np.expand_dims(diag_rate, axis=2), 
+             np.expand_dims(diag_pi, axis=2)),axis=2)
 
     def accumulate(self):
         """

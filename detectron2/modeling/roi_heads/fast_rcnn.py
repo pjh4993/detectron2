@@ -43,7 +43,7 @@ Naming convention:
 """
 
 
-def fast_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image):
+def fast_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, topk_per_image, proposals):
     """
     Call `fast_rcnn_inference_single_image` for all images.
 
@@ -71,15 +71,15 @@ def fast_rcnn_inference(boxes, scores, image_shapes, score_thresh, nms_thresh, t
     """
     result_per_image = [
         fast_rcnn_inference_single_image(
-            boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image
+            boxes_per_image, scores_per_image, image_shape, score_thresh, nms_thresh, topk_per_image, proposal
         )
-        for scores_per_image, boxes_per_image, image_shape in zip(scores, boxes, image_shapes)
+        for scores_per_image, boxes_per_image, image_shape, proposal in zip(scores, boxes, image_shapes, proposals)
     ]
     return [x[0] for x in result_per_image], [x[1] for x in result_per_image]
 
 
 def fast_rcnn_inference_single_image(
-    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image
+    boxes, scores, image_shape, score_thresh, nms_thresh, topk_per_image, proposal
 ):
     """
     Single-image inference. Return bounding-box detection results by thresholding
@@ -93,9 +93,11 @@ def fast_rcnn_inference_single_image(
         Same as `fast_rcnn_inference`, but for only one image.
     """
     valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores).all(dim=1)
+    locations = proposal.proposal_boxes.get_centers()
     if not valid_mask.all():
         boxes = boxes[valid_mask]
         scores = scores[valid_mask]
+        locations = locations[valid_mask]
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
@@ -103,6 +105,7 @@ def fast_rcnn_inference_single_image(
     boxes = Boxes(boxes.reshape(-1, 4))
     boxes.clip(image_shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
+    locations = locations.unsqueeze(1).repeat(1,80,1) 
 
     # Filter results based on detection scores
     filter_mask = scores > score_thresh  # R x K
@@ -114,17 +117,20 @@ def fast_rcnn_inference_single_image(
     else:
         boxes = boxes[filter_mask]
     scores = scores[filter_mask]
+    locations = locations[filter_mask]
 
     # Apply per-class NMS
     keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
-    boxes, scores, filter_inds = boxes[keep], scores[keep], filter_inds[keep]
+    boxes, scores, locations, filter_inds = boxes[keep], scores[keep], locations[keep], filter_inds[keep]
 
     result = Instances(image_shape)
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
+    result.locations = locations
+    result.centerness = torch.zeros_like(result.scores)
     return result, filter_inds[:, 0]
 
 
@@ -465,6 +471,7 @@ class FastRCNNOutputLayers(nn.Module):
             proposals,
             self.smooth_l1_beta,
             self.box_reg_loss_type,
+            proposals,
         ).losses()
         return {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
 
@@ -489,6 +496,7 @@ class FastRCNNOutputLayers(nn.Module):
             self.test_score_thresh,
             self.test_nms_thresh,
             self.test_topk_per_image,
+            proposals,
         )
 
     def predict_boxes_for_gt_classes(self, predictions, proposals):

@@ -22,8 +22,8 @@ from detectron2.evaluation.fast_eval_api import COCOeval_opt as COCOeval
 from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
 import matplotlib.pyplot as plt
-import pandas as pd
-import seaborn as sns
+#import pandas as pd
+#import seaborn as sns
 
 from .evaluator import DatasetEvaluator
 
@@ -247,56 +247,81 @@ class COCOEvaluator(DatasetEvaluator):
 
     def _draw_coco_graph(self, coco_eval):
         ious = coco_eval.ious
-        dtCtr = coco_eval.dtCtr
-        gtCtr = coco_eval.gtCtr
-        score = coco_eval.dscore
+        dtData = coco_eval.dtData
+        gtData = coco_eval.gtData
         
-        iou_list = []
         iou_score_list = []
-        dtCtr_list = []
-        gtCtr_list = []
-        gtCtr_dtCtr_list = []
         score_list = []
+        dtCtr_list = []
+        dtpdCtr_list = []
+        gtCtr_dtCtr_list = []
+        gtDr_list = []
+        gtDpi_list = []
+
 
         for k, iou in ious.items():
             if len(iou) == 0:
                 continue
-            iou_list.append(iou.flatten())
+            gtCtr = gtData[k][:,:,0]
+            gtDr = gtData[k][:,:,1]
+            gtDpi = gtData[k][:,:,2]
+
+            dtCtr = dtData[k][:,0]
+            score = dtData[k][:,1]
+            dtpdCtr = dtData[k][:,2:]
+
+            maxIouIdx = iou.argmax(axis=1)
+
             iou_score_list.append(iou.max(axis=1))
-            gtCtr_list.append(gtCtr[k].flatten())
-            gtCtr_dtCtr_list.append(gtCtr[k].max(axis=1))
-            dtCtr_list.append(dtCtr[k].flatten())
-            score_list.append(score[k].flatten())
+            dtCtr_list.append(dtCtr.flatten())
+            score_list.append(score.flatten())
+            dtpdCtr_list.append(dtpdCtr[np.arange(dtpdCtr.shape[0]), maxIouIdx])
+
+            gtCtr_dtCtr_list.append(gtCtr[np.arange(gtCtr.shape[0]), maxIouIdx])
+            gtDr_list.append(gtDr[np.arange(gtDr.shape[0]),maxIouIdx])
+            gtDpi_list.append(gtDpi[np.arange(gtDpi.shape[0]),maxIouIdx])
         
-        iou_list = np.concatenate(iou_list)
         iou_score_list = np.concatenate(iou_score_list)
-        dtCtr_list = np.concatenate(dtCtr_list)
-        gtCtr_list = np.concatenate(gtCtr_list)
-        gtCtr_dtCtr_list = np.concatenate(gtCtr_dtCtr_list)
         score_list = np.concatenate(score_list)
+        dtCtr_list = np.concatenate(dtCtr_list)
+        dtpdCtr_list = np.concatenate(dtpdCtr_list)
+
+        gtCtr_dtCtr_list = np.concatenate(gtCtr_dtCtr_list)
+        gtDr_list = np.concatenate(gtDr_list)
+        gtDpi_list = np.concatenate(gtDpi_list)
 
         rgba = np.zeros((iou_score_list.shape[0],4))
         rgba[:,2] = 1.0 
         rgba[:,3] = score_list
-        fig, ax = plt.subplots(nrows=2, ncols=2, figsize=(20, 20))
+
+        fig, ax = plt.subplots(nrows=3, ncols=2, figsize=(20, 40))
         ax[0,0].scatter(gtCtr_dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[0,0].set_title("x : GTctrness, y : IoU")
-        ax[0,1].scatter(score_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
-        ax[0,1].set_title("x : DTscore, y : IoU")
+        ax[0,1].scatter(dtCtr_list, dtpdCtr_list, s=rgba[:,3]*9, color=rgba)
+        ax[0,1].set_title("x : DTctrness, y : DTPDctrness")
         ax[1,0].scatter(gtCtr_dtCtr_list, dtCtr_list, s=rgba[:,3]*9, color=rgba)
         ax[1,0].set_title("x : GTctrness, y : DTctrness")
         ax[1,1].scatter(dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[1,1].set_title("x : Dtctrness, y : IoU")
+        ax[2,0].scatter(gtDr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
+        ax[2,0].set_title("x : GTDiagRate, y : IoU")
+        ax[2,1].scatter(gtDpi_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
+        ax[2,1].set_title("x : GTDiagPi, y : IoU")
 
         plt.tight_layout()
         plt.savefig(os.path.join(self._output_dir, "graph.png"))
 
-        """
         data = np.concatenate((iou_score_list.reshape(-1, 1),
                 dtCtr_list.reshape(-1, 1),
+                dtpdCtr_list.reshape(-1, 1),
                 gtCtr_dtCtr_list.reshape(-1, 1),
-                score_list.reshape(-1, 1)), axis=1)
+                score_list.reshape(-1, 1),
+                gtDpi_list.reshape(-1, 1),
+                gtDr_list.reshape(-1, 1)), axis=1)
 
+        np.save(os.path.join(self._output_dir,"graph_data"),data)
+
+        """
         data_df = pd.DataFrame(data=data, columns=["iou", "dtCtr", "gtCtr", "score"])        
         g = sns.PairGrid(data_df, hue="score")
         g.map_diag(sns.histplot)
