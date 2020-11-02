@@ -13,6 +13,7 @@ logger = logging.getLogger(__name__)
 def find_top_rpn_proposals(
     proposals: List[torch.Tensor],
     pred_objectness_logits: List[torch.Tensor],
+    anchors: List[torch.Tensor],
     image_sizes: List[Tuple[int, int]],
     nms_thresh: float,
     pre_nms_topk: int,
@@ -54,9 +55,10 @@ def find_top_rpn_proposals(
     # 1. Select top-k anchor for every level and every image
     topk_scores = []  # #lvl Tensor, each of shape N x topk
     topk_proposals = []
+    topk_anchors = []
     level_ids = []  # #lvl Tensor, each of shape (topk,)
     batch_idx = torch.arange(num_images, device=device)
-    for level_id, (proposals_i, logits_i) in enumerate(zip(proposals, pred_objectness_logits)):
+    for level_id, (proposals_i, logits_i, anchors_i) in enumerate(zip(proposals, pred_objectness_logits, anchors)):
         Hi_Wi_A = logits_i.shape[1]
         num_proposals_i = min(pre_nms_topk, Hi_Wi_A)
 
@@ -68,14 +70,17 @@ def find_top_rpn_proposals(
 
         # each is N x topk
         topk_proposals_i = proposals_i[batch_idx[:, None], topk_idx]  # N x topk x 4
+        topk_anchors_i = anchors_i.tensor[topk_idx]  # N x topk x 4
 
         topk_proposals.append(topk_proposals_i)
         topk_scores.append(topk_scores_i)
+        topk_anchors.append(topk_anchors_i)
         level_ids.append(torch.full((num_proposals_i,), level_id, dtype=torch.int64, device=device))
 
     # 2. Concat all levels together
     topk_scores = cat(topk_scores, dim=1)
     topk_proposals = cat(topk_proposals, dim=1)
+    topk_anchors = cat(topk_anchors, dim=1)
     level_ids = cat(level_ids, dim=0)
 
     # 3. For each image, run a per-level NMS, and choose topk results.
@@ -83,6 +88,7 @@ def find_top_rpn_proposals(
     for n, image_size in enumerate(image_sizes):
         boxes = Boxes(topk_proposals[n])
         scores_per_img = topk_scores[n]
+        anchors_per_img = Boxes(topk_anchors[n])
         lvl = level_ids
 
         valid_mask = torch.isfinite(boxes.tensor).all(dim=1) & torch.isfinite(scores_per_img)
@@ -93,13 +99,14 @@ def find_top_rpn_proposals(
                 )
             boxes = boxes[valid_mask]
             scores_per_img = scores_per_img[valid_mask]
+            anchors_per_img = anchors_per_img[valid_mask]
             lvl = lvl[valid_mask]
         boxes.clip(image_size)
 
         # filter empty boxes
         keep = boxes.nonempty(threshold=min_box_size)
         if keep.sum().item() != len(boxes):
-            boxes, scores_per_img, lvl = boxes[keep], scores_per_img[keep], lvl[keep]
+            boxes, scores_per_img, anchors_per_img, lvl = boxes[keep], scores_per_img[keep], anchors_per_img[keep], lvl[keep]
 
         keep = batched_nms(boxes.tensor, scores_per_img, lvl, nms_thresh)
         # In Detectron1, there was different behavior during training vs. testing.
@@ -114,6 +121,7 @@ def find_top_rpn_proposals(
         res = Instances(image_size)
         res.proposal_boxes = boxes[keep]
         res.objectness_logits = scores_per_img[keep]
+        res.locations = anchors_per_img[keep].get_centers()
         results.append(res)
     return results
 

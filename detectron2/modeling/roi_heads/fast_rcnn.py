@@ -93,11 +93,13 @@ def fast_rcnn_inference_single_image(
         Same as `fast_rcnn_inference`, but for only one image.
     """
     valid_mask = torch.isfinite(boxes).all(dim=1) & torch.isfinite(scores).all(dim=1)
-    locations = proposal.proposal_boxes.get_centers()
+    proposal_boxes = proposal.proposal_boxes.tensor
+    locations = proposal.locations
     if not valid_mask.all():
         boxes = boxes[valid_mask]
         scores = scores[valid_mask]
         locations = locations[valid_mask]
+        proposal_boxes = proposal_boxes[valid_mask]
 
     scores = scores[:, :-1]
     num_bbox_reg_classes = boxes.shape[1] // 4
@@ -106,6 +108,7 @@ def fast_rcnn_inference_single_image(
     boxes.clip(image_shape)
     boxes = boxes.tensor.view(-1, num_bbox_reg_classes, 4)  # R x C x 4
     locations = locations.unsqueeze(1).repeat(1,80,1) 
+    proposal_boxes = proposal_boxes.unsqueeze(1).repeat(1,80,1)
 
     # Filter results based on detection scores
     filter_mask = scores > score_thresh  # R x K
@@ -118,19 +121,40 @@ def fast_rcnn_inference_single_image(
         boxes = boxes[filter_mask]
     scores = scores[filter_mask]
     locations = locations[filter_mask]
+    proposal_boxes = proposal_boxes[filter_mask]
+
+    if len(locations):
+        ltrb = (locations.repeat(1,2) - boxes).abs()
+        dtpdCtr = torch.sqrt((ltrb[:,[0,2]].min(axis=1)[0] / ltrb[:,[0,2]].max(axis=1)[0]) * 
+                    (ltrb[:,[1,3]].min(axis=1)[0] / ltrb[:,[1,3]].max(axis=1)[0]))
+        dtpdCtr[dtpdCtr < 0] = 1e-5
+    else:
+        dtpdCtr = torch.zeros_like(scores)
+    
+    #scores = torch.sqrt(scores * dtpdCtr)
 
     # Apply per-class NMS
     keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
     if topk_per_image >= 0:
         keep = keep[:topk_per_image]
-    boxes, scores, locations, filter_inds = boxes[keep], scores[keep], locations[keep], filter_inds[keep]
 
+    boxes, scores, locations, proposal_boxes , filter_inds = \
+        boxes[keep], scores[keep], locations[keep], proposal_boxes[keep] , filter_inds[keep]
+
+    if len(locations):
+        ltrb = (locations.repeat(1,2) - proposal_boxes).abs()
+        centerness = torch.sqrt((ltrb[:,[0,2]].min(axis=1)[0] / ltrb[:,[0,2]].max(axis=1)[0]) * 
+                    (ltrb[:,[1,3]].min(axis=1)[0] / ltrb[:,[1,3]].max(axis=1)[0]))
+        centerness[centerness < 0] = 1e-5
+    else:
+        centerness = torch.zeros_like(scores)
+    
     result = Instances(image_shape)
     result.pred_boxes = Boxes(boxes)
     result.scores = scores
     result.pred_classes = filter_inds[:, 1]
     result.locations = locations
-    result.centerness = torch.zeros_like(result.scores)
+    result.centerness = centerness
     return result, filter_inds[:, 0]
 
 

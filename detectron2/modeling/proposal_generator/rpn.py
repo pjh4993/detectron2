@@ -477,6 +477,7 @@ class RPN(nn.Module):
         return find_top_rpn_proposals(
             pred_proposals,
             pred_objectness_logits,
+            anchors,
             image_sizes,
             self.nms_thresh,
             # https://github.com/pytorch/pytorch/issues/41449

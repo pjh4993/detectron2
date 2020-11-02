@@ -266,16 +266,16 @@ class COCOEvaluator(DatasetEvaluator):
             gtDr = gtData[k][:,:,1]
             gtDpi = gtData[k][:,:,2]
 
-            dtCtr = dtData[k][:,0]
-            score = dtData[k][:,1]
-            dtpdCtr = dtData[k][:,2:]
+            score = dtData[k][:,0]
+            dtCtr = dtData[k][:,1]
+            dtpdCtr = dtData[k][:,2]
 
             maxIouIdx = iou.argmax(axis=1)
 
             iou_score_list.append(iou.max(axis=1))
             dtCtr_list.append(dtCtr.flatten())
             score_list.append(score.flatten())
-            dtpdCtr_list.append(dtpdCtr[np.arange(dtpdCtr.shape[0]), maxIouIdx])
+            dtpdCtr_list.append(dtpdCtr.flatten())
 
             gtCtr_dtCtr_list.append(gtCtr[np.arange(gtCtr.shape[0]), maxIouIdx])
             gtDr_list.append(gtDr[np.arange(gtDr.shape[0]),maxIouIdx])
@@ -294,20 +294,26 @@ class COCOEvaluator(DatasetEvaluator):
         rgba[:,2] = 1.0 
         rgba[:,3] = score_list
 
-        fig, ax = plt.subplots(nrows=3, ncols=2, figsize=(20, 40))
+        fig, ax = plt.subplots(nrows=3, ncols=2, figsize=(20, 30))
         ax[0,0].scatter(gtCtr_dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[0,0].set_title("x : GTctrness, y : IoU")
         ax[0,1].scatter(dtCtr_list, dtpdCtr_list, s=rgba[:,3]*9, color=rgba)
         ax[0,1].set_title("x : DTctrness, y : DTPDctrness")
         ax[1,0].scatter(gtCtr_dtCtr_list, dtCtr_list, s=rgba[:,3]*9, color=rgba)
         ax[1,0].set_title("x : GTctrness, y : DTctrness")
-        ax[1,1].scatter(dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
-        ax[1,1].set_title("x : Dtctrness, y : IoU")
+        ax[1,1].scatter(gtCtr_dtCtr_list, dtpdCtr_list, s=rgba[:,3]*9, color=rgba)
+        ax[1,1].set_title("x : GTctrness, y : DTPDctrness")
         ax[2,0].scatter(gtDr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
         ax[2,0].set_title("x : GTDiagRate, y : IoU")
-        ax[2,1].scatter(gtDpi_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
-        ax[2,1].set_title("x : GTDiagPi, y : IoU")
 
+        rgba[:,3] = iou_score_list
+        ax[2,1].scatter(gtDpi_list, gtDr_list, s=rgba[:,3]*9, color=rgba)
+        ax[2,1].set_title("x : GTDiagPi, y : GTDiagRate")
+
+        for axis in ax.flatten():
+            axis.set_xlim(0,1)
+            axis.set_ylim(0,1)
+            axis.set_aspect('equal', adjustable='box')
         plt.tight_layout()
         plt.savefig(os.path.join(self._output_dir, "graph.png"))
 

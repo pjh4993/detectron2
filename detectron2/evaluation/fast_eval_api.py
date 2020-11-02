@@ -146,11 +146,12 @@ class COCOeval_opt(COCOeval):
         lr = ltrb[:,:,[0,2]]
         tb = ltrb[:,:,[1,3]]
         dpdctr = np.sqrt((lr.min(axis=2) / lr.max(axis=2)) *  (tb.min(axis=2) / tb.max(axis=2)))
+        dpdctr = dpdctr[np.arange(dpdctr.shape[0]), np.arange(dpdctr.shape[0])]
 
         return np.concatenate(
             (np.expand_dims(dscore,axis=1), 
              np.expand_dims(dctr, axis=1), 
-             dpdctr,),axis=1)
+             np.expand_dims(dpdctr, axis=1),),axis=1)
 
     def computeGTData(self, imgId, catId):
         p = self.params
