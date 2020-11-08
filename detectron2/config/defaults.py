@@ -240,6 +240,15 @@ _C.MODEL.RPN.POST_NMS_TOPK_TEST = 1000
 _C.MODEL.RPN.NMS_THRESH = 0.7
 
 # ---------------------------------------------------------------------------- #
+# PCOI HEADS options
+# ---------------------------------------------------------------------------- #
+_C.MODEL.PCOI_HEADS = CN()
+_C.MODEL.PCOI_HEADS.NAME = "StandardPCOIHeads"
+# Number of foreground classes
+_C.MODEL.PCOI_HEADS.NUM_CLASSES = 80
+
+
+# ---------------------------------------------------------------------------- #
 # ROI HEADS options
 # ---------------------------------------------------------------------------- #
 _C.MODEL.ROI_HEADS = CN()

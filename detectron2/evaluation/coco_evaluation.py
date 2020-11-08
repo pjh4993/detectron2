@@ -22,6 +22,7 @@ from detectron2.evaluation.fast_eval_api import COCOeval_opt as COCOeval
 from detectron2.structures import Boxes, BoxMode, pairwise_iou
 from detectron2.utils.logger import create_small_table
 import matplotlib.pyplot as plt
+import matplotlib.colors as colors
 #import pandas as pd
 #import seaborn as sns
 
@@ -246,77 +247,188 @@ class COCOEvaluator(DatasetEvaluator):
         self._results["box_proposals"] = res
 
     def _draw_coco_graph(self, coco_eval):
+        """
+        ious
+
+            IoU:        Intersection over union
+
+        gtData
+
+            DoG:        DiagRate over Ground truth box
+            IoR:        Intersection over Regressed box
+
+        dtData
+
+            score:      Classification score of Regressed box
+            DoR:        DiagRate over Regressed box (from Head)
+            DoP / DpN:  DiagRate over Proposal (from RPN) / DiagRate predicted by Network
+        """
+
         ious = coco_eval.ious
         dtData = coco_eval.dtData
         gtData = coco_eval.gtData
         
-        iou_score_list = []
-        score_list = []
-        dtCtr_list = []
-        dtpdCtr_list = []
-        gtCtr_dtCtr_list = []
-        gtDr_list = []
-        gtDpi_list = []
+        """
+        metric from ious
+        """
+        IoU_list = []
 
+        """
+        metric from gtData
+        """
+        DoG_list = []
+        IoR_list = []
+
+        """
+        metric from dtData
+        """
+        score_list = []
+        DoR_list = []
+        DpN_list = []
+
+        """
+        metric made by combination of gtData and dtData
+        """
+        mgIoU_list = []
+
+        """
+        prepare for figure axis
+        """
+        net = (4, 4)
+        lim = (1.0, 1.0)
+        tick_base = lim[0] / net[0]
+        nrows, ncols = (3, 3)
+        xmesh, ymesh = (np.linspace(0,lim_n,net_n+1) for lim_n, net_n in zip(lim, net))
+
+        fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 10, nrows * 10))
+
+        ax_data_list = [
+            {"xkey":"DoG", "ykey":"DoR"},
+            {"xkey":"DoG", "ykey":"IoU"},
+            {"xkey":"DoG", "ykey":"IoR"},
+
+            {"xkey":"IoU", "ykey":"mgIoU"},
+            {"xkey":"IoR", "ykey":"mgIoU"},
+            {"xkey":"Cls", "ykey":"IoR"},
+
+            {"xkey":"Cls", "ykey":"IoU"},
+            {"xkey":"DoG", "ykey":"DpN"},
+            {"xkey":"DoR", "ykey":"DpN"},
+       ]
+        """
+        {"xkey":"Cls", "ykey":"IoU"},
+        {"xkey":"DpN", "ykey":"IoU"},
+        {"xkey":"IoR", "ykey":"IoU"},
+        """
+
+        assert len(ax_data_list) <= nrows * ncols
 
         for k, iou in ious.items():
             if len(iou) == 0:
                 continue
-            gtCtr = gtData[k][:,:,0]
-            gtDr = gtData[k][:,:,1]
-            gtDpi = gtData[k][:,:,2]
+            DoG = gtData[k][:,:,0]
+            IoR = gtData[k][:,:,1]
 
             score = dtData[k][:,0]
-            dtCtr = dtData[k][:,1]
-            dtpdCtr = dtData[k][:,2]
+            DoR = dtData[k][:,1]
+            DpN = dtData[k][:,2]
 
+            IoU_list.append(iou.max(axis=1))
             maxIouIdx = iou.argmax(axis=1)
 
-            iou_score_list.append(iou.max(axis=1))
-            dtCtr_list.append(dtCtr.flatten())
+            DoG_list.append(DoG[np.arange(DoG.shape[0]), maxIouIdx])
+            IoR_list.append(IoR[np.arange(IoR.shape[0]), maxIouIdx])
+
             score_list.append(score.flatten())
-            dtpdCtr_list.append(dtpdCtr.flatten())
+            DoR_list.append(DoR.flatten())
+            DpN_list.append(DpN.flatten())
 
-            gtCtr_dtCtr_list.append(gtCtr[np.arange(gtCtr.shape[0]), maxIouIdx])
-            gtDr_list.append(gtDr[np.arange(gtDr.shape[0]),maxIouIdx])
-            gtDpi_list.append(gtDpi[np.arange(gtDpi.shape[0]),maxIouIdx])
+            mgIoU_list.append(iou.max(axis=0)[maxIouIdx])
+
         
-        iou_score_list = np.concatenate(iou_score_list)
+        IoU_list = np.concatenate(IoU_list)
+
+        DoG_list = np.concatenate(DoG_list)
+        IoR_list = np.concatenate(IoR_list)
+
         score_list = np.concatenate(score_list)
-        dtCtr_list = np.concatenate(dtCtr_list)
-        dtpdCtr_list = np.concatenate(dtpdCtr_list)
+        DoR_list = np.concatenate(DoR_list)
+        DpN_list = np.concatenate(DpN_list)
 
-        gtCtr_dtCtr_list = np.concatenate(gtCtr_dtCtr_list)
-        gtDr_list = np.concatenate(gtDr_list)
-        gtDpi_list = np.concatenate(gtDpi_list)
+        mgIoU_list = np.concatenate(mgIoU_list)
 
-        rgba = np.zeros((iou_score_list.shape[0],4))
-        rgba[:,2] = 1.0 
+        rgba = np.zeros((IoU_list.shape[0],4))
+        rgba[:,:3] = colors.to_rgba('royalblue')[:3]
         rgba[:,3] = score_list
 
-        fig, ax = plt.subplots(nrows=3, ncols=2, figsize=(20, 30))
-        ax[0,0].scatter(gtCtr_dtCtr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
-        ax[0,0].set_title("x : GTctrness, y : IoU")
-        ax[0,1].scatter(dtCtr_list, dtpdCtr_list, s=rgba[:,3]*9, color=rgba)
-        ax[0,1].set_title("x : DTctrness, y : DTPDctrness")
-        ax[1,0].scatter(gtCtr_dtCtr_list, dtCtr_list, s=rgba[:,3]*9, color=rgba)
-        ax[1,0].set_title("x : GTctrness, y : DTctrness")
-        ax[1,1].scatter(gtCtr_dtCtr_list, dtpdCtr_list, s=rgba[:,3]*9, color=rgba)
-        ax[1,1].set_title("x : GTctrness, y : DTPDctrness")
-        ax[2,0].scatter(gtDr_list, iou_score_list, s=rgba[:,3]*9, color=rgba)
-        ax[2,0].set_title("x : GTDiagRate, y : IoU")
+        data_dict = {
+            "IoU": (IoU_list, "IoU"),
+            "DoG": (DoG_list, "DiagRate over GT"),
+            "IoR": (IoR_list, "Intersection over Regressed box"),
+            "Cls": (score_list, "Classification score of Regressed box"),
+            "DoR": (DoR_list, "DiagRate over Regressed box"),
+            "DpN": (DpN_list, "DiagRate predicted by Network"),
+            "mgIoU": (mgIoU_list, "Maximum IoU taken by target GT")
+        }
 
-        rgba[:,3] = iou_score_list
-        ax[2,1].scatter(gtDpi_list, gtDr_list, s=rgba[:,3]*9, color=rgba)
-        ax[2,1].set_title("x : GTDiagPi, y : GTDiagRate")
+        def count_freq(x, y, net_N, lim):
 
-        for axis in ax.flatten():
+            xlim, ylim = lim
+            net_X, net_Y = net_N
+            x_tick, y_tick = xlim / net_X, ylim / net_Y
+            x_grid =  y_grid = np.arange(net_X)
+            x[x>=xlim] -= 1e-5
+            y[y>=ylim] -= 1e-5
+            x_band = np.floor(x / x_tick).reshape(-1,1)
+            y_band = np.floor(y / y_tick).reshape(-1,1)
+            whole_key, count = np.unique(np.concatenate((x_band, y_band), axis=1), axis=0, return_counts=True)
+
+            # Try to exclude y == 0 on purpose
+            invalid_mask = (y == 0).nonzero()[0]
+            invalid_key, invalid_count = np.unique(np.concatenate((x_band[invalid_mask], y_band[invalid_mask]), axis=1), axis=0, return_counts=True)
+
+            whole_key = whole_key.astype(int)
+            invalid_key = invalid_key.astype(int)
+
+            freq = np.zeros(net_N)
+            inv = np.zeros(net_N)
+            freq[whole_key[:,1], whole_key[:,0]] = count
+            inv[invalid_key[:,1], invalid_key[:,0]] = invalid_count
+            freq -= inv
+
+            """
+            for graph_loc in itertools.product(x_grid, y_grid):
+                x_loc, y_loc = graph_loc
+                coef_mask = ((x_band == x_loc) * (y_band == y_loc)).nonzero()[0]
+                coef_x, coef_y = x[coef_mask], y[coef_mask]
+                coef_loc = np.corrcoef(coef_x, coef_y)[0,1]
+                coef[y_loc, x_loc] = coef_loc if np.isnan(coef_loc) == False else 0.0
+            """
+ 
+            return freq / (np.sum(count) + 1e-5), inv / (np.sum(count) + 1e-5), np.sum(invalid_count) / (np.sum(count) + 1e-5)
+
+        for axis, ax_data in zip(ax.flatten(), ax_data_list):
+            xkey, ykey = ax_data["xkey"], ax_data["ykey"]
+            x_data, x_title = data_dict[xkey]
+            y_data, y_title = data_dict[ykey]
+            freq_map, inv_map, invalid_prop = count_freq(x_data, y_data, net, lim)
+
+            axis.pcolor(xmesh, ymesh, freq_map, alpha=0.4, cmap="BuGn", shading="auto")
+            axis.scatter(x_data, y_data, s=rgba[:,3]*9, color=rgba)
+
+            for graph_loc, freq, inv in zip(itertools.product(xmesh[:-1], ymesh[:-1]), freq_map.reshape(-1), inv_map.reshape(-1)):
+                x_loc, y_loc = graph_loc
+                axis.text(y_loc+tick_base/2, x_loc+tick_base/2, "Proportion: {:.2f}\nInv: {:.2f}".format(freq, inv), fontsize=int(70 * tick_base), color="red" ,
+                    horizontalalignment='center', verticalalignment='center')
+            axis.set_title("x : {}, y : {}, inv_prop: {:.2f}".format(x_title, y_title, invalid_prop))
             axis.set_xlim(0,1)
             axis.set_ylim(0,1)
             axis.set_aspect('equal', adjustable='box')
+
         plt.tight_layout()
         plt.savefig(os.path.join(self._output_dir, "graph.png"))
 
+        """
         data = np.concatenate((iou_score_list.reshape(-1, 1),
                 dtCtr_list.reshape(-1, 1),
                 dtpdCtr_list.reshape(-1, 1),
@@ -326,16 +438,7 @@ class COCOEvaluator(DatasetEvaluator):
                 gtDr_list.reshape(-1, 1)), axis=1)
 
         np.save(os.path.join(self._output_dir,"graph_data"),data)
-
         """
-        data_df = pd.DataFrame(data=data, columns=["iou", "dtCtr", "gtCtr", "score"])        
-        g = sns.PairGrid(data_df, hue="score")
-        g.map_diag(sns.histplot)
-        g.map_offdiag(sns.scatterplot)
-        g.add_legend()
-        g.savefig(os.path.join(self._output_dir, "sns_graph.png"))
-        """
-
 
     def _derive_coco_results(self, coco_eval, iou_type, class_names=None):
         """

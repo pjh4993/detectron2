@@ -3,6 +3,7 @@ import copy
 import numpy as np
 import time
 from pycocotools.cocoeval import COCOeval
+import pycocotools.mask as maskUtils
 
 from detectron2 import _C
 
@@ -103,6 +104,12 @@ class COCOeval_opt(COCOeval):
         # >>>> End of code differences with original COCO API
 
     def computeDTData(self, imgId, catId):
+        """
+        score:      Classification score of Regressed box
+        DoR:        DiagRate over Regressed box (from Head)
+        DoP / DpN:  DiagRate over Proposal (from RPN) / DiagRate predicted by Network
+        """
+
         p = self.params
         if p.useCats:
             gt = self._gts[imgId,catId]
@@ -117,43 +124,40 @@ class COCOeval_opt(COCOeval):
         if len(dt) > p.maxDets[-1]:
             dt=dt[0:p.maxDets[-1]]
 
+        """
+        bound variable name first
+        """
+        dscore = dctr = dbox = dloc = None
+
         if p.iouType == 'segm':
             g = [g['segmentation'] for g in gt]
             d = [d['segmentation'] for d in dt]
         elif p.iouType == 'bbox':
-            dscore = [d['score'] for d in dt]
-            dctr = [d['dctrness'] for d in dt]
-            dbox = [d['bbox'] for d in dt]
-            dloc = [d['location'] for d in dt]
+            dscore = np.array([d['score'] for d in dt])
+            dctr = np.array([d['dctrness'] for d in dt])
+            dbox = np.array([d['bbox'] for d in dt])
+            dloc = np.array([d['location'] for d in dt])
         else:
             raise Exception('unknown iouType for iou computation')
 
-        if len(dloc) == 0:
+        if len(dbox) == 0:
             return np.array([])
 
-        dscore = np.array(dscore)
-        dctr = np.array(dctr)
-
-        g = np.array(dbox)
-        dloc = np.array(dloc)
-
-        d = np.expand_dims(np.concatenate((dloc, -dloc), axis=1), axis=1)
-        g[:,2:] += g[:,0:2]
-        g[:,0:2] *= -1
-        ltrb = d + g
-        out_idx = (ltrb<0).nonzero()
-        ltrb[ltrb < 0] = 1e-5
-        lr = ltrb[:,:,[0,2]]
-        tb = ltrb[:,:,[1,3]]
-        dpdctr = np.sqrt((lr.min(axis=2) / lr.max(axis=2)) *  (tb.min(axis=2) / tb.max(axis=2)))
-        dpdctr = dpdctr[np.arange(dpdctr.shape[0]), np.arange(dpdctr.shape[0])]
+        score = np.expand_dims(dscore, axis=1)
+        DoR = self.computeDiagRate(dloc.copy(), dbox.copy())
+        DoR = DoR[np.arange(DoR.shape[0]), np.arange(DoR.shape[0]),:]
+        DpN = np.expand_dims(dctr, axis=1)
 
         return np.concatenate(
-            (np.expand_dims(dscore,axis=1), 
-             np.expand_dims(dctr, axis=1), 
-             np.expand_dims(dpdctr, axis=1),),axis=1)
+            (score, DoR, DpN), 
+            axis=1)
+
 
     def computeGTData(self, imgId, catId):
+        """
+        DoG:        DiagRate over Ground truth box
+        IoR:        Intersection over Regressed box
+        """
         p = self.params
         if p.useCats:
             gt = self._gts[imgId,catId]
@@ -168,47 +172,68 @@ class COCOeval_opt(COCOeval):
         if len(dt) > p.maxDets[-1]:
             dt=dt[0:p.maxDets[-1]]
 
+        """
+        bound variable name first
+        """
+        dbox = gbox = dloc = None
+
         if p.iouType == 'segm':
             g = [g['segmentation'] for g in gt]
             d = [d['segmentation'] for d in dt]
         elif p.iouType == 'bbox':
-            g = [g['bbox'] for g in gt]
-            d = [d['location'] for d in dt]
+            gbox = np.array([g['bbox'] for g in gt])
+            dbox = np.array([d['bbox'] for d in dt])
+            dloc = np.array([d['location'] for d in dt])
         else:
             raise Exception('unknown iouType for iou computation')
 
-        if len(g) == 0 or len(d) == 0:
+        if len(gbox) == 0 or len(dbox) == 0:
             return np.array([])
 
-        g = np.array(g)
-        d = np.array(d)
+        DoG = self.computeDiagRate(dloc.copy(), gbox.copy())
 
-        d = np.expand_dims(np.concatenate((d, -d), axis=1), axis=1)
-        g[:,2:] += g[:,0:2]
-        g[:,0:2] *= -1
-        ltrb = d + g
-        out_idx = (ltrb<0).nonzero()
+        iscrowd = [ 1 for o in gt]
+        IoR = maskUtils.iou(dbox,gbox,iscrowd)
+        IoR = np.expand_dims(IoR, axis=2)
+
+        return np.concatenate(
+            (DoG, IoR),
+            axis=2)
+
+    def computeDiagRate(self, loc, bbox):
+        """
+
+            $name       $help                                       $dType
+
+        arguments
+
+            loc:        location to compute DiagRate                np.array(N, 2)
+            bbox:       Target box to compute DiagRate              np.array(N, 4)
+
+        return value
+
+            diag_rate:  DiagRate computed from location given bbox  np.array(N,1)
+
+        """
+        loc = np.expand_dims(np.concatenate((loc, -loc), axis=1), axis=1)
+        bbox[:,2:] += bbox[:,0:2]
+        bbox[:,0:2] *= -1
+
+        ltrb = loc + bbox
         ltrb[ltrb < 0] = 1e-5
         lr = ltrb[:,:,[0,2]]
         tb = ltrb[:,:,[1,3]]
-        centerness = np.sqrt((lr.min(axis=2) / lr.max(axis=2)) *  (tb.min(axis=2) / tb.max(axis=2)))
+        diag_len = (lr.sum(axis=2) ** 2 + tb.sum(axis=2) **2)/4
 
-        diag = (lr.sum(axis=2) ** 2 + tb.sum(axis=2) **2)/4
-        anchor_loc = np.concatenate(
+        diff_vec = np.concatenate(
             (np.expand_dims(lr.sum(axis=2)/2 - lr[:,:,0], axis=2), 
             np.expand_dims(tb.sum(axis=2)/2 - tb[:,:,1], axis=2)),
             axis=2)
 
-        #anchor_loc /= np.expand_dims(np.linalg.norm(anchor_loc, axis=2),axis=2)
-        diag_rate = (anchor_loc[:,:,0] ** 2 + anchor_loc[:,:,1] **2) / diag
-        diag_pi = np.arctan2(anchor_loc[:,:,1], anchor_loc[:,:,0]) / np.pi
-        diag_pi[diag_pi < 0] += 1
-        # compute centerness between each dt's location and gt region
+        diag_rate = 1 - (diff_vec[:,:,0] ** 2 + diff_vec[:,:,1] **2) / diag_len
 
-        return np.concatenate(
-            (np.expand_dims(centerness,axis=2), 
-             np.expand_dims(diag_rate, axis=2), 
-             np.expand_dims(diag_pi, axis=2)),axis=2)
+        return np.expand_dims(diag_rate, axis=2)
+    
 
     def accumulate(self):
         """

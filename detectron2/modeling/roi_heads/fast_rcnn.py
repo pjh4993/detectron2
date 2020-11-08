@@ -122,17 +122,7 @@ def fast_rcnn_inference_single_image(
     scores = scores[filter_mask]
     locations = locations[filter_mask]
     proposal_boxes = proposal_boxes[filter_mask]
-
-    if len(locations):
-        ltrb = (locations.repeat(1,2) - boxes).abs()
-        dtpdCtr = torch.sqrt((ltrb[:,[0,2]].min(axis=1)[0] / ltrb[:,[0,2]].max(axis=1)[0]) * 
-                    (ltrb[:,[1,3]].min(axis=1)[0] / ltrb[:,[1,3]].max(axis=1)[0]))
-        dtpdCtr[dtpdCtr < 0] = 1e-5
-    else:
-        dtpdCtr = torch.zeros_like(scores)
-    
-    #scores = torch.sqrt(scores * dtpdCtr)
-
+   
     # Apply per-class NMS
     keep = batched_nms(boxes, scores, filter_inds[:, 1], nms_thresh)
     if topk_per_image >= 0:
@@ -143,8 +133,18 @@ def fast_rcnn_inference_single_image(
 
     if len(locations):
         ltrb = (locations.repeat(1,2) - proposal_boxes).abs()
-        centerness = torch.sqrt((ltrb[:,[0,2]].min(axis=1)[0] / ltrb[:,[0,2]].max(axis=1)[0]) * 
-                    (ltrb[:,[1,3]].min(axis=1)[0] / ltrb[:,[1,3]].max(axis=1)[0]))
+
+        lr = ltrb[:,[0,2]]
+        tb = ltrb[:,[1,3]]
+
+        diag_len = (lr.sum(axis=1) ** 2 + tb.sum(axis=1) **2)/4
+
+        diff_vec = torch.cat(
+            ((lr.sum(axis=1)/2 - lr[:,0]).unsqueeze(-1), 
+            (tb.sum(axis=1)/2 - tb[:,1]).unsqueeze(-1)),
+            axis=1)
+
+        centerness = 1 - (diff_vec[:,0] ** 2 + diff_vec[:,1] **2) / diag_len
         centerness[centerness < 0] = 1e-5
     else:
         centerness = torch.zeros_like(scores)

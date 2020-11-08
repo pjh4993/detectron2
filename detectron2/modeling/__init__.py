@@ -30,6 +30,10 @@ from .proposal_generator import (
     RPN_HEAD_REGISTRY,
     build_rpn_head,
 )
+from .part_cluster_generator import (
+    PART_CLUSTER_GENERATOR_REGISTRY,
+    build_part_cluster_generator,
+)
 from .roi_heads import (
     ROI_BOX_HEAD_REGISTRY,
     ROI_HEADS_REGISTRY,
@@ -43,6 +47,11 @@ from .roi_heads import (
     build_keypoint_head,
     build_mask_head,
     build_roi_heads,
+)
+from .pcoi_heads import (
+    PCOI_HEADS_REGISTRY,
+    PCOIHeads,
+    build_pcoi_heads,
 )
 from .test_time_augmentation import DatasetMapperTTA, GeneralizedRCNNWithTTA
 
