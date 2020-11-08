@@ -240,6 +240,58 @@ _C.MODEL.RPN.POST_NMS_TOPK_TEST = 1000
 _C.MODEL.RPN.NMS_THRESH = 0.7
 
 # ---------------------------------------------------------------------------- #
+# PPN options
+# ---------------------------------------------------------------------------- #
+_C.MODEL.PPN = CN()
+_C.MODEL.PPN.HEAD_NAME = "StandardPPNHead"  # used by PPN_HEAD_REGISTRY
+_C.MODEL.PPN.ID_DIM = 1
+_C.MODEL.PPN.NUM_CLASSES = 80
+
+# Names of the input feature maps to be used by PPN
+# e.g., ["p2", "p3", "p4", "p5", "p6"] for FPN
+_C.MODEL.PPN.IN_FEATURES = ["res4"]
+# Remove PPN anchors that go outside the image by BOUNDARY_THRESH pixels
+# Set to -1 or a large value, e.g. 100000, to disable pruning anchors
+_C.MODEL.PPN.BOUNDARY_THRESH = -1
+# IOU overlap ratios [BG_IOU_THRESHOLD, FG_IOU_THRESHOLD]
+# Minimum overlap required between an anchor and ground-truth box for the
+# (anchor, gt box) pair to be a positive example (IoU >= FG_IOU_THRESHOLD
+# ==> positive PPN example: 1)
+# Maximum overlap allowed between an anchor and ground-truth box for the
+# (anchor, gt box) pair to be a negative examples (IoU < BG_IOU_THRESHOLD
+# ==> negative PPN example: 0)
+# Anchors with overlap in between (BG_IOU_THRESHOLD <= IoU < FG_IOU_THRESHOLD)
+# are ignored (-1)
+_C.MODEL.PPN.IOU_THRESHOLDS = [0.3, 0.7]
+_C.MODEL.PPN.IOU_LABELS = [0, -1, 1]
+# Total number of PPN examples per image
+_C.MODEL.PPN.BATCH_SIZE_PER_IMAGE = 256
+# Target fraction of foreground (positive) examples per PPN minibatch
+_C.MODEL.PPN.POSITIVE_FRACTION = 0.5
+# Options are: "smooth_l1", "giou"
+_C.MODEL.PPN.BBOX_REG_LOSS_TYPE = "smooth_l1"
+_C.MODEL.PPN.BBOX_REG_LOSS_WEIGHT = 1.0
+# Weights on (dx, dy, dw, dh) for normalizing PPN anchor regression targets
+_C.MODEL.PPN.BBOX_REG_WEIGHTS = (1.0, 1.0, 1.0, 1.0)
+# The transition point from L1 to L2 loss. Set to 0.0 to make the loss simply L1.
+_C.MODEL.PPN.SMOOTH_L1_BETA = 0.0
+_C.MODEL.PPN.LOSS_WEIGHT = 1.0
+# Number of top scoring PPN proposals to keep before applying NMS
+# When FPN is used, this is *per FPN level* (not total)
+_C.MODEL.PPN.PRE_NMS_TOPK_TRAIN = 12000
+_C.MODEL.PPN.PRE_NMS_TOPK_TEST = 6000
+# Number of top scoring PPN proposals to keep after applying NMS
+# When FPN is used, this limit is applied per level and then again to the union
+# of proposals from all levels
+# NOTE: When FPN is used, the meaning of this config is different from Detectron1.
+# It means per-batch topk in Detectron1, but per-image topk here.
+# See the "find_top_rpn_proposals" function for details.
+_C.MODEL.PPN.POST_NMS_TOPK_TRAIN = 2000
+_C.MODEL.PPN.POST_NMS_TOPK_TEST = 1000
+# NMS threshold used on PPN proposals
+_C.MODEL.PPN.NMS_THRESH = 0.7
+
+# ---------------------------------------------------------------------------- #
 # PCOI HEADS options
 # ---------------------------------------------------------------------------- #
 _C.MODEL.PCOI_HEADS = CN()

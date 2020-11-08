@@ -13,7 +13,7 @@ from detectron2.utils.events import get_event_storage
 from detectron2.utils.memory import retry_if_cuda_oom
 from detectron2.utils.registry import Registry
 
-from ..anchor_generator import anchor_generator, build_anchor_generator
+from ..anchor_generator import build_anchor_generator
 from ..box_regression import Box2BoxTransform
 from ..matcher import Matcher
 from ..sampling import subsample_labels
@@ -111,11 +111,12 @@ class StandardPPNHead(nn.Module):
         # 1x1 conv for predicting box2box transform deltas
         self.pred_box_deltas = nn.Conv2d(in_channels, num_anchors * box_dim, kernel_size=1, stride=1)
         # 1x1 conv for predicting id vector
-        self.pred_id_vec = nn.Conv2d(in_channels, num_anchors * id_dim, kernel_size=1, stride=1)
-        # 1x1 conv for predicting IoR
+        self.pred_id_vecs = nn.Conv2d(in_channels, num_anchors * id_dim, kernel_size=1, stride=1)
+
+        self.output_shape = {'cls': in_channels, 'box': in_channels, 'pred_id_vec': id_dim, 'locale': 2}
 
         for l in [self.cls_conv, self.box_conv, self.id_conv,
-                  self.pred_logits, self.pred_box_deltas, self.pred_id_vec,]:
+                  self.pred_logits, self.pred_box_deltas, self.pred_id_vecs,]:
             nn.init.normal_(l.weight, std=0.01)
             nn.init.constant_(l.bias, 0)
 
@@ -143,8 +144,8 @@ class StandardPPNHead(nn.Module):
             "in_channels": in_channels, 
             "num_anchors": num_anchors[0], 
             "box_dim": box_dim,
-            "id_dim": cfg.PPN.ID_DIM,
-            "num_classes": cfg.PPN.NUM_CLASSES,
+            "id_dim": cfg.MODEL.PPN.ID_DIM,
+            "num_classes": cfg.MODEL.PPN.NUM_CLASSES,
         }
 
         return ret
@@ -183,6 +184,8 @@ class StandardPPNHead(nn.Module):
 
         return pred_logits, pred_box_deltas, pred_id_vecs
 
+    def subnet_shape(self):
+        return self.output_shape
 
 @PROPOSAL_GENERATOR_REGISTRY.register()
 class PPN(nn.Module):
@@ -204,6 +207,8 @@ class PPN(nn.Module):
         anchor_boundary_thresh: float = -1.0,
         box_reg_loss_type: str = "giou",
         smooth_l1_beta: float = 0.0,
+        num_classes = 80,
+        id_dim = 1,
     ):
         """
         NOTE: this interface is experimental.
@@ -241,18 +246,22 @@ class PPN(nn.Module):
         self.anchor_boundary_thresh = anchor_boundary_thresh
         self.box_reg_loss_type = box_reg_loss_type
         self.smooth_l1_beta = smooth_l1_beta
+        self.num_classes = num_classes
+        self.id_dim = id_dim
 
     @classmethod
     def from_config(cls, cfg, input_shape: Dict[str, ShapeSpec]):
         in_features = cfg.MODEL.PPN.IN_FEATURES
         ret = {
             "in_features": in_features,
-            "min_box_size": cfg.MODEL.PART_PROPOSAL_GENERATOR.MIN_SIZE,
+            "min_box_size": cfg.MODEL.PROPOSAL_GENERATOR.MIN_SIZE,
             "batch_size_per_image": cfg.MODEL.PPN.BATCH_SIZE_PER_IMAGE,
             "anchor_boundary_thresh": cfg.MODEL.PPN.BOUNDARY_THRESH,
             "box2box_transform": Box2BoxTransform(weights=cfg.MODEL.PPN.BBOX_REG_WEIGHTS),
             "box_reg_loss_type": cfg.MODEL.PPN.BBOX_REG_LOSS_TYPE,
             "smooth_l1_beta": cfg.MODEL.PPN.SMOOTH_L1_BETA,
+            "num_classes": cfg.MODEL.PPN.NUM_CLASSES,
+            "id_dim": cfg.MODEL.PPN.ID_DIM,
         }
 
         ret["anchor_generator"] = build_anchor_generator(cfg, [input_shape[f] for f in in_features])
@@ -361,6 +370,7 @@ class PPN(nn.Module):
         return losses
 
     def label_and_sample_anchors(
+        self,
         anchors,
         gt_instances,
     ):
@@ -391,15 +401,12 @@ class PPN(nn.Module):
         features = [features[f] for f in self.in_features]
         anchors = self.anchor_generator(features)
 
-        num_classes = self.num_classes
-        id_dim = self.id_dim
-
         pred_logits, pred_box_deltas, pred_id_vecs = self.ppn_head(features)
 
         # Transpose the Hi*Wi*A dimension to the middle:
         pred_logits = [
             # (N, A*C, Hi, Wi) -> (N, A, C, Hi, Wi) -> (N, Hi, Wi, A, C) -> (N, Hi*Wi*A, C)
-            permute_to_N_HWA_K(x, num_classes)
+            permute_to_N_HWA_K(x, self.num_classes)
             for x in pred_logits
         ]
 
@@ -411,7 +418,7 @@ class PPN(nn.Module):
 
         pred_id_vecs = [
             # (N, A, Hi, Wi) ->  (N, Hi, Wi, A) -> (N, Hi*Wi*A)
-            permute_to_N_HWA_K(x, id_dim)
+            permute_to_N_HWA_K(x, self.id_dim)
             for x in pred_id_vecs
         ]
 
@@ -474,8 +481,6 @@ class PPN(nn.Module):
             self.training,
         )
 
-
-
     def _decode_proposals(self, anchors: List[Boxes], pred_anchor_deltas: List[torch.Tensor]):
         """
         Transform anchors into proposals by applying the predicted anchor deltas.
@@ -496,3 +501,6 @@ class PPN(nn.Module):
             # Append feature map proposals with shape (N, Hi*Wi*A, B)
             proposals.append(proposals_i.view(N, -1, B))
         return proposals
+    
+    def output_shape(self):
+        return self.ppn_head.subnet_shape()

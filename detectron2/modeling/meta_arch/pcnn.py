@@ -77,8 +77,10 @@ class GeneralizedPCNN(nn.Module):
     def from_config(cls, cfg):
         backbone = build_backbone(cfg)
         part_proposal_generator = build_proposal_generator(cfg, backbone.output_shape())
-        part_cluster_generator = build_part_cluster_generator(cfg, part_proposal_generator.output_shape())
-        pcoi_heads = build_pcoi_heads(cfg, part_cluster_generator.output_shape())
+        #part_cluster_generator = build_part_cluster_generator(cfg, part_proposal_generator.output_shape())
+        #pcoi_heads = build_pcoi_heads(cfg, part_cluster_generator.output_shape())
+        part_cluster_generator = None
+        pcoi_heads = None
         return {
             "backbone": backbone,
             "part_proposal_generator": part_proposal_generator,
