@@ -10,6 +10,7 @@ import tqdm
 from detectron2.config import get_cfg
 from detectron2.data.detection_utils import read_image
 from detectron2.utils.logger import setup_logger
+from detectron2.data.generator import pascalVOCGenerator
 
 from predictor import VisualizationDemo
 
@@ -79,6 +80,8 @@ if __name__ == "__main__":
 
     demo = VisualizationDemo(cfg)
 
+    dataset_generator = pascalVOCGenerator()
+
     if args.input:
         if len(args.input) == 1:
             args.input = glob.glob(os.path.expanduser(args.input[0]))
@@ -103,10 +106,12 @@ if __name__ == "__main__":
                 if os.path.isdir(args.output):
                     assert os.path.isdir(args.output), args.output
                     out_filename = os.path.join(args.output, os.path.basename(path))
+                    out_predname = os.path.join(args.output, (os.path.splitext(os.path.basename(path))[0] + '.xml'))
                 else:
                     assert len(args.input) == 1, "Please specify a directory with args.output"
                     out_filename = args.output
                 visualized_output.save(out_filename)
+                dataset_generator.genFromPred(predictions, out_predname, os.path.basename(path))
                 """
                 for l in range(len(visualized_prm)):
                     for val in range(len(visualized_prm[l])):
