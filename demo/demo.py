@@ -103,6 +103,7 @@ if __name__ == "__main__":
             )
 
             if args.output:
+                out_predname = None
                 if os.path.isdir(args.output):
                     assert os.path.isdir(args.output), args.output
                     out_filename = os.path.join(args.output, os.path.basename(path))
@@ -111,7 +112,10 @@ if __name__ == "__main__":
                     assert len(args.input) == 1, "Please specify a directory with args.output"
                     out_filename = args.output
                 visualized_output.save(out_filename)
-                dataset_generator.genFromPred(predictions, out_predname, os.path.basename(path))
+                pred_result = dataset_generator.genFromPred(predictions, out_predname, os.path.basename(path))
+                with open(out_predname, 'wb') as xml_pred:
+                    xml_pred.write(pred_result)
+                    xml_pred.close()
                 """
                 for l in range(len(visualized_prm)):
                     for val in range(len(visualized_prm[l])):
