@@ -80,7 +80,7 @@ if __name__ == "__main__":
 
     demo = VisualizationDemo(cfg)
 
-    dataset_generator = pascalVOCGenerator()
+    dataset_generator = pascalVOCGenerator(cfg)
 
     if args.input:
         if len(args.input) == 1:
@@ -112,10 +112,7 @@ if __name__ == "__main__":
                     assert len(args.input) == 1, "Please specify a directory with args.output"
                     out_filename = args.output
                 visualized_output.save(out_filename)
-                pred_result = dataset_generator.genFromPred(predictions, out_predname, os.path.basename(path))
-                with open(out_predname, 'wb') as xml_pred:
-                    xml_pred.write(pred_result)
-                    xml_pred.close()
+                dataset_generator.genFromPred(predictions, out_predname, out_filename)
                 """
                 for l in range(len(visualized_prm)):
                     for val in range(len(visualized_prm[l])):
