@@ -103,6 +103,8 @@ _PREDEFINED_SPLITS_COCO_PANOPTIC = {
 }
 
 
+# ==== Custom datasets and splits ==========
+
 _PREDEFINED_SPLITS_SKU = {}
 _PREDEFINED_SPLITS_SKU["SKU"] = {
     "SKU_train": ("SKU110/train", "SKU110/annotations/annotations_train.csv"),
@@ -113,6 +115,10 @@ _PREDEFINED_SPLITS_NOVEL = {}
 _PREDEFINED_SPLITS_NOVEL["novel"] = {
     "novel_train": ("novel/train", "novel/annotations/annotations_train.csv"),
     "novel_test": ("novel/test", "novel/annotations/annotations_test.csv"),
+}
+_PREDEFINED_SPLITS_NLOS = {}
+_PREDEFINED_SPLITS_NLOS["nlos"] = {
+    "nlos_train": ("nlos/Images", "nlos/annotations/json/NLOS_GT_train_cocoformat.json"),
 }
 
 def register_all_sku(root):
@@ -136,6 +142,18 @@ def register_all_novel(root):
                 os.path.join(root, json_file) if "://" not in json_file else json_file,
                 os.path.join(root, image_root),
             )
+
+def register_all_nlos(root):
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_NLOS.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_coco_instances(
+                key,
+                _get_builtin_metadata(dataset_name),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
+
 
 
 
@@ -264,3 +282,4 @@ register_all_cityscapes(_root)
 register_all_pascal_voc(_root)
 register_all_sku(_root)
 register_all_novel(_root)
+register_all_nlos(_root)

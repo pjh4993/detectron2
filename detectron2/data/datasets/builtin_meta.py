@@ -264,11 +264,7 @@ def _get_builtin_metadata(dataset_name):
             "thing_classes": CITYSCAPES_THING_CLASSES,
             "stuff_classes": CITYSCAPES_STUFF_CLASSES,
         }
-    elif dataset_name == "SKU":
-        return {
-            "thing_classes": ["object"]
-        }
-    elif dataset_name == "novel":
+    elif dataset_name in ["SKU", "novel", "nlos"]:
         return {
             "thing_classes": ["object"]
         }
