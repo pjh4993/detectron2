@@ -72,8 +72,14 @@ def permute_to_N_HWA_K(tensor, K):
     N, _, H, W = tensor.shape
     tensor = tensor.view(N, -1, K, H, W)
     tensor = tensor.permute(0, 3, 4, 1, 2)
-    tensor = tensor.reshape(N, -1, K)  # Size=(N,HWA,K)
+    tensor = tensor.reshape(N,-1, K)  # Size=(NHWA,K)
     return tensor
+
+def meshgrid_to_HW(tensor):
+    N, _, H, W = tensor.shape
+    grid_x, grid_y = torch.meshgrid(torch.arange(H), torch.arange(W))
+    mesh = torch.cat((grid_x.unsqueeze(-1), grid_y.unsqueeze(-1)), dim=-1)
+    return mesh.reshape(-1, 2)
 
 @PPN_HEAD_REGISTRY.register()
 class StandardPPNHead(nn.Module):
@@ -107,16 +113,16 @@ class StandardPPNHead(nn.Module):
         self.id_conv = nn.Conv2d(in_channels, in_channels, kernel_size=3, stride=1, padding=1)
 
         # 1x1 conv for predicting objectness logits
-        self.pred_logits = nn.Conv2d(in_channels, num_anchors * num_classes, kernel_size=1, stride=1)
+        self.logits_pred = nn.Conv2d(in_channels, num_anchors * num_classes, kernel_size=1, stride=1)
         # 1x1 conv for predicting box2box transform deltas
-        self.pred_box_deltas = nn.Conv2d(in_channels, num_anchors * box_dim, kernel_size=1, stride=1)
+        self.reg_pred = nn.Conv2d(in_channels, num_anchors * box_dim, kernel_size=1, stride=1)
         # 1x1 conv for predicting id vector
-        self.pred_id_vecs = nn.Conv2d(in_channels, num_anchors * id_dim, kernel_size=1, stride=1)
+        self.id_vec_pred = nn.Conv2d(in_channels, num_anchors * id_dim, kernel_size=1, stride=1)
 
         self.output_shape = {'cls': in_channels, 'box': in_channels, 'pred_id_vec': id_dim, 'locale': 2}
 
         for l in [self.cls_conv, self.box_conv, self.id_conv,
-                  self.pred_logits, self.pred_box_deltas, self.pred_id_vecs,]:
+                  self.logits_pred, self.reg_pred, self.id_vec_pred,]:
             nn.init.normal_(l.weight, std=0.01)
             nn.init.constant_(l.bias, 0)
 
@@ -156,16 +162,16 @@ class StandardPPNHead(nn.Module):
             features (list[Tensor]): list of feature maps
 
         Returns:
-            pred_logits (list[Tensor]): 
+            logits_pred (list[Tensor]): 
                 the predicted class logits for all anchors. A is the number of cell anchors.
                 Element i is a tensor of shape (N, A, Hi, Wi) representing
             list[Tensor]: A list of L elements. Element i is a tensor of shape
                 (N, A*box_dim, Hi, Wi) representing the predicted "deltas" used to transform anchors
                 to proposals.
         """
-        pred_logits = []
-        pred_box_deltas = []
-        pred_id_vecs = []
+        logits_pred = []
+        reg_pred = []
+        id_vec_pred = []
         self.cls_subnet = []
         self.box_subnet = []
 
@@ -178,11 +184,11 @@ class StandardPPNHead(nn.Module):
             self.cls_subnet.append(cls_subnet)
             self.box_subnet.append(box_subnet)
 
-            pred_logits.append(self.pred_logits(cls_subnet))
-            pred_box_deltas.append(self.pred_box_deltas(box_subnet))
-            pred_id_vecs.append(self.pred_id_vecs(id_subnet))
+            logits_pred.append(self.logits_pred(cls_subnet))
+            reg_pred.append(self.reg_pred(box_subnet))
+            id_vec_pred.append(self.id_vec_pred(id_subnet))
 
-        return pred_logits, pred_box_deltas, pred_id_vecs
+        return logits_pred, reg_pred, id_vec_pred
 
     def subnet_shape(self):
         return self.output_shape
@@ -271,109 +277,34 @@ class PPN(nn.Module):
         ret["head"] = build_ppn_head(cfg, [input_shape[f] for f in in_features])
         return ret
 
-    @torch.jit.unused
     def losses(
-        self,
-        anchors,
-        pred_data,
-        gt_data,
-        loss_mask,
-    ):
-        """
-        Return the losses from a set of RPN predictions and their associated ground-truth.
+        self, 
+        locations, 
+        logits_pred, 
+        reg_pred, 
+        id_vec_pred, 
+        gt_instances, 
+        top_feats=None):
 
-        anchors, pred_logits, gt_labels, pred_box_deltas, gt_boxes, pred_id_vecs, gt_id_vecs, pred_IoR, gt_IoR
-
-        Args:
-            anchors (list[Boxes or RotatedBoxes]): anchors for each feature map, each
-                has shape (Hi*Wi*A, B), where B is box dimension (4 or 5).
-
-            pred_data (Dict[List]):
-                pred_logits (list[Tensor]): A list of L elements.
-                    Element i is a tensor of shape (N, Hi*Wi*A) representing
-                    the predicted logits for all anchors.
-                pred box_deltas (list[Tensor]): A list of L elements. Element i is a tensor of shape
-                    (N, Hi*Wi*A, 4 or 5) representing the predicted "deltas" used to transform anchors
-                    to proposals.
-                pred_id_vecs (list[Tensor]):  A list of L elements. (N, Hi*Wi*A, D)
-            
-            gt_data (Dict[List]):
-                gt_labels (list[Tensor]): Output of :meth:`label_and_sample_anchors`.
-                gt_boxes (list[Tensor]): Output of :meth:`label_and_sample_anchors`.
-                gt_id_vecs (list[Tensor]): Output of :meth:`label_and_sample_anchors`.
-            
-            loss_mask (Dict[List]):
-                pos_mask (list[Tensor]): Positive mask for box regression target
-
-        Returns:
-            dict[loss name -> loss value]: A dict mapping from loss name to loss value.
-        """
-
-        pred_logits = pred_data['pred_logits']
-        pred_box_deltas = pred_data['pred_box_deltas']
-        pred_id_vecs = pred_data['pred_id_vecs']
-
-        gt_labels = gt_data['gt_labels']
-        gt_boxes = gt_data['gt_boxes']
-        gt_id_vecs = gt_data['gt_id_vecs']
-
-        pos_mask = loss_mask['pos_mask']
-        neg_mask = loss_mask['neg_mask']
-
-        num_images = len(gt_labels)
-        gt_labels = torch.stack(gt_labels)  # (N, sum(Hi*Wi*Ai))
-
-        # Log the number of positive/negative anchors per-image that's used in training
-        num_pos_anchors = pos_mask.sum().item()
-        num_neg_anchors = neg_mask.sum().item()
-        storage = get_event_storage()
-        storage.put_scalar("ppn/num_pos_anchors", num_pos_anchors / num_images)
-        storage.put_scalar("ppn/num_neg_anchors", num_neg_anchors / num_images)
-
-        cls_loss = box_loss = None
-        if self.box_reg_loss_type == "smooth_l1":
-            anchors = type(anchors[0]).cat(anchors).tensor  # Ax(4 or 5)
-            gt_anchor_deltas = [self.box2box_transform.get_deltas(anchors, k) for k in gt_boxes]
-            gt_anchor_deltas = torch.stack(gt_anchor_deltas)  # (N, sum(Hi*Wi*Ai), 4 or 5)
-            box_loss = smooth_l1_loss(
-                cat(pred_box_deltas, dim=1)[pos_mask],
-                gt_anchor_deltas[pos_mask],
-                self.smooth_l1_beta,
-                reduction="sum",
-            )
-        elif self.box_reg_loss_type == "giou":
-            pred_proposals = self._decode_proposals(anchors, pred_box_deltas)
-            pred_proposals = cat(pred_proposals, dim=1)
-            pred_proposals = pred_proposals.view(-1, pred_proposals.shape[-1])
-            pos_mask = pos_mask.view(-1)
-            box_loss = giou_loss(
-                pred_proposals[pos_mask], cat(gt_boxes)[pos_mask], reduction="sum"
-            )
-        else:
-            raise ValueError(f"Invalid rpn box reg loss type '{self.box_reg_loss_type}'")
-
-        cls_loss = F.binary_cross_entropy_with_logits(
-            cat(pred_logits, dim=1),
-            gt_labels.to(torch.float32),
-            reduction="sum",
-        )
-
-        # @pjh3974: id_vec loss using triplet loss
-
-        normalizer = self.batch_size_per_image * num_images
-
-        losses = {
-            "loss_ppn_cls": cls_loss / normalizer,
-            "loss_ppn_loc": box_loss / normalizer,
-        }
-        losses = {k: v * self.loss_weight.get(k, 1.0) for k, v in losses.items()}
-        return losses
+        return NotImplementedError
 
     def label_and_sample_anchors(
         self,
         anchors,
         gt_instances,
     ):
+
+        return NotImplementedError
+
+    def predict_proposals(
+        self, 
+        locations, 
+        box_head_feature, 
+        cls_head_feature, 
+        id_vec_pred,
+        image_sizes, 
+    ):
+
         return NotImplementedError
 
     def forward(
@@ -401,106 +332,46 @@ class PPN(nn.Module):
         features = [features[f] for f in self.in_features]
         anchors = self.anchor_generator(features)
 
-        pred_logits, pred_box_deltas, pred_id_vecs = self.ppn_head(features)
+        logits_pred, reg_pred, id_vec_pred = self.ppn_head(features)
 
         # Transpose the Hi*Wi*A dimension to the middle:
-        pred_logits = [
+        logits_pred = [
             # (N, A*C, Hi, Wi) -> (N, A, C, Hi, Wi) -> (N, Hi, Wi, A, C) -> (N, Hi*Wi*A, C)
             permute_to_N_HWA_K(x, self.num_classes)
-            for x in pred_logits
+            for x in logits_pred
         ]
-
-        pred_box_deltas = [
+        reg_pred = [
             # (N, A*B, Hi, Wi) -> (N, A, B, Hi, Wi) -> (N, Hi, Wi, A, B) -> (N, Hi*Wi*A, B)
             permute_to_N_HWA_K(x, self.anchor_generator.box_dim)
-            for x in pred_box_deltas
+            for x in reg_pred
+        ]
+        id_vec_pred = [
+            # (N, A, Hi, Wi) ->  (N, Hi, Wi, A) -> (N, Hi*Wi*A,1)
+            permute_to_N_HWA_K(x, self.id_dim)
+            for x in id_vec_pred
         ]
 
-        pred_id_vecs = [
-            # (N, A, Hi, Wi) ->  (N, Hi, Wi, A) -> (N, Hi*Wi*A)
-            permute_to_N_HWA_K(x, self.id_dim)
-            for x in pred_id_vecs
+        locale_info = [
+            meshgrid_to_HW(x)
+            for x in self.ppn_head.box_subnet
         ]
 
         if self.training:
             assert gt_instances is not None, "PPN requires gt_instances in training!"
-            gt_labels, gt_boxes, gt_id_vecs= self.label_and_sample_anchors(anchors, gt_instances)
 
-            losses = self.losses(
-                anchors, pred_logits, gt_labels, pred_box_deltas, gt_boxes, pred_id_vecs, gt_id_vecs, pred_IoR, gt_IoR
-            )
+            losses = self.losses(anchors, logits_pred, reg_pred, id_vec_pred, gt_instances)
 
             part_proposals = self.predict_part_proposals(
-                self.ppn_head.box_feature, self.ppn_head.cls_head_feature, pred_id_vecs, pred_IoR, images.image_sizes
+                locale_info, self.ppn_head.box_subnet, self.ppn_head.cls_subnet, logits_pred, id_vec_pred, images.image_sizes
             )
         else:
             losses = {}
 
             part_proposals = self.predict_part_proposals(
-                self.ppn_head.box_feature, self.ppn_head.cls_head_feature, pred_id_vecs, pred_IoR, images.image_sizes
+                locale_info, self.ppn_head.box_subnet, self.ppn_head.cls_subnet, logits_pred, id_vec_pred, images.image_sizes
             )
 
         return part_proposals, losses
 
-    # TODO: use torch.no_grad when torchscript supports it.
-    # https://github.com/pytorch/pytorch/pull/41371
-
-    def predict_proposals(
-        self,
-        anchors: List[Boxes],
-        pred_objectness_logits: List[torch.Tensor],
-        pred_anchor_deltas: List[torch.Tensor],
-        image_sizes: List[Tuple[int, int]],
-    ):
-        """
-        Decode all the predicted box regression deltas to proposals. Find the top proposals
-        by applying NMS and removing boxes that are too small.
-
-        Returns:
-            proposals (list[Instances]): list of N Instances. The i-th Instances
-                stores post_nms_topk object proposals for image i, sorted by their
-                objectness score in descending order.
-        """
-        # The proposals are treated as fixed for approximate joint training with roi heads.
-        # This approach ignores the derivative w.r.t. the proposal boxes’ coordinates that
-        # are also network responses, so is approximate.
-        pred_objectness_logits = [t.detach() for t in pred_objectness_logits]
-        pred_anchor_deltas = [t.detach() for t in pred_anchor_deltas]
-        pred_proposals = self._decode_proposals(anchors, pred_anchor_deltas)
-
-        return find_top_ppn_proposals(
-            pred_proposals,
-            pred_objectness_logits,
-            anchors,
-            image_sizes,
-            self.nms_thresh,
-            # https://github.com/pytorch/pytorch/issues/41449
-            self.pre_nms_topk[int(self.training)],
-            self.post_nms_topk[int(self.training)],
-            self.min_box_size,
-            self.training,
-        )
-
-    def _decode_proposals(self, anchors: List[Boxes], pred_anchor_deltas: List[torch.Tensor]):
-        """
-        Transform anchors into proposals by applying the predicted anchor deltas.
-
-        Returns:
-            proposals (list[Tensor]): A list of L tensors. Tensor i has shape
-                (N, Hi*Wi*A, B)
-        """
-        N = pred_anchor_deltas[0].shape[0]
-        proposals = []
-        # For each feature map
-        for anchors_i, pred_anchor_deltas_i in zip(anchors, pred_anchor_deltas):
-            B = anchors_i.tensor.size(1)
-            pred_anchor_deltas_i = pred_anchor_deltas_i.reshape(-1, B)
-            # Expand anchors to shape (N*Hi*Wi*A, B)
-            anchors_i = anchors_i.tensor.unsqueeze(0).expand(N, -1, -1).reshape(-1, B)
-            proposals_i = self.box2box_transform.apply_deltas(pred_anchor_deltas_i, anchors_i)
-            # Append feature map proposals with shape (N, Hi*Wi*A, B)
-            proposals.append(proposals_i.view(N, -1, B))
-        return proposals
-    
     def output_shape(self):
         return self.ppn_head.subnet_shape()

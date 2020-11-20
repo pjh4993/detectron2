@@ -292,6 +292,32 @@ _C.MODEL.PPN.POST_NMS_TOPK_TEST = 1000
 _C.MODEL.PPN.NMS_THRESH = 0.7
 
 # ---------------------------------------------------------------------------- #
+# FCOS_PPN options
+# ---------------------------------------------------------------------------- #
+_C.MODEL.FCOS_PPN = CN()
+
+# This is the number of foreground classes.
+_C.MODEL.FCOS_PPN.NUM_CLASSES = 80
+_C.MODEL.FCOS_PPN.FPN_STRIDES = [8, 16, 32, 64, 128]
+_C.MODEL.FCOS_PPN.INFERENCE_TH_TRAIN = 0.05
+_C.MODEL.FCOS_PPN.INFERENCE_TH_TEST = 0.05
+_C.MODEL.FCOS_PPN.NMS_TH = 0.6
+_C.MODEL.FCOS_PPN.PRE_NMS_TOPK_TRAIN = 1000
+_C.MODEL.FCOS_PPN.PRE_NMS_TOPK_TEST = 1000
+_C.MODEL.FCOS_PPN.POST_NMS_TOPK_TRAIN = 100
+_C.MODEL.FCOS_PPN.POST_NMS_TOPK_TEST = 100
+
+# Focal loss parameters
+_C.MODEL.FCOS_PPN.LOSS_ALPHA = 0.25
+_C.MODEL.FCOS_PPN.LOSS_GAMMA = 2.0
+_C.MODEL.FCOS_PPN.SIZES_OF_INTEREST = [64, 128, 256, 512]
+
+# the number of convolutions used in the cls and bbox tower
+_C.MODEL.FCOS_PPN.CENTER_SAMPLE = True
+_C.MODEL.FCOS_PPN.POS_RADIUS = 1.5
+_C.MODEL.FCOS_PPN.LOC_LOSS_TYPE = 'giou'
+
+# ---------------------------------------------------------------------------- #
 # PCOI HEADS options
 # ---------------------------------------------------------------------------- #
 _C.MODEL.PCOI_HEADS = CN()

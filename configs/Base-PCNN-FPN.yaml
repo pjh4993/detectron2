@@ -1,7 +1,7 @@
 MODEL:
   META_ARCHITECTURE: "GeneralizedPCNN"
   PROPOSAL_GENERATOR:
-    NAME: "PPN"
+    NAME: "FCOS_PPN"
   BACKBONE:
     NAME: "build_retinanet_resnet_fpn_backbone"
   RESNETS:
@@ -11,6 +11,7 @@ MODEL:
   ANCHOR_GENERATOR:
     SIZES: [[32], [64], [128], [256], [512]]  # One size for each in feature map
     ASPECT_RATIOS: [[1.0]]  # Three aspect ratios (same for all in feature maps)
+    OFFSET: 0.5
   PPN:
     IN_FEATURES: ["p3", "p4", "p5", "p6", "p7"]
     PRE_NMS_TOPK_TRAIN: 2000  # Per FPN level

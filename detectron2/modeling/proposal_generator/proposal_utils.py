@@ -184,7 +184,6 @@ def find_top_ppn_proposals(
     anchors: List[torch.Tensor],
     locales: List[torch.Tensor],
     image_sizes: List[Tuple[int, int]],
-    nms_thresh: float,
     pre_nms_topk: int,
     min_box_size: float,
     training: bool,

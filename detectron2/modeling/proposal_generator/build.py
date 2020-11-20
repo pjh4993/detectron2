@@ -10,6 +10,7 @@ The call should return a `nn.Module` object.
 """
 
 from . import rpn, rrpn  # noqa F401 isort:skip
+from .fcos.ppn_fcos import FCOS_PPN
 
 
 def build_proposal_generator(cfg, input_shape):
