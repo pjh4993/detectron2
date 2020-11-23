@@ -144,6 +144,7 @@ Category ids in annotations are not in [1, #categories]! We'll apply a mapping f
             "height" : img_group_dict["laser_image"]["height"],
             "width" : img_group_dict["laser_image"]["width"]
         }
+        record["laser_image"]["name"].sort()
         record["depth_image"] = {
             "name": os.path.join(image_root, img_group_dict["group_name"],img_group_dict['depth_image']['name']),
             "height" : img_group_dict["depth_image"]["height"],
