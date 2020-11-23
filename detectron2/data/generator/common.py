@@ -15,9 +15,9 @@ class pascalVOCGenerator:
 
         pred_result = prediction["instances"].get_fields()
         pred_boxes = pred_result["pred_boxes"].tensor.cpu().detach().numpy().tolist()
-        pred_scores = pred_result["scores"]
+        #pred_scores = pred_result["scores"]
         pred_classes = pred_result["pred_classes"].cpu().numpy().tolist()
-        pred_level = pred_result["level"]
+        #pred_level = pred_result["level"]
 
         #shapes = {label, bndbox}
         shapes = []

@@ -26,6 +26,7 @@ from .cityscapes import load_cityscapes_instances, load_cityscapes_semantic
 from .lvis import get_lvis_instances_meta, register_lvis_instances
 from .pascal_voc import register_pascal_voc
 from .register_coco import register_coco_instances, register_coco_panoptic_separated
+from .register_nlos import register_nlos_instances
 from .register_SKU import register_SKU_instances
 
 # ==== Predefined datasets and splits for COCO ==========
@@ -116,9 +117,16 @@ _PREDEFINED_SPLITS_NOVEL["novel"] = {
     "novel_train": ("novel/train", "novel/annotations/annotations_train.csv"),
     "novel_test": ("novel/test", "novel/annotations/annotations_test.csv"),
 }
+_PREDEFINED_SPLITS_NLOS_GT = {}
+_PREDEFINED_SPLITS_NLOS_GT["nlosGT"] = {
+    "nlos_gt_train": ("nlosGT/Images", "nlosGT/annotations/json/NLOS_GT_train_cocoformat.json"),
+}
+
+# ==== Predefined datasets and splits for NLOS ==========
+
 _PREDEFINED_SPLITS_NLOS = {}
 _PREDEFINED_SPLITS_NLOS["nlos"] = {
-    "nlos_train": ("nlos/Images", "nlos/annotations/json/NLOS_GT_train_cocoformat.json"),
+    "nlos_2020_train": ("nlos/images", "nlos/annotations/instances_train2020.json"),
 }
 
 def register_all_sku(root):
@@ -143,8 +151,8 @@ def register_all_novel(root):
                 os.path.join(root, image_root),
             )
 
-def register_all_nlos(root):
-    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_NLOS.items():
+def register_all_nlos_gt(root):
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_NLOS_GT.items():
         for key, (image_root, json_file) in splits_per_dataset.items():
             # Assume pre-defined datasets live in `./datasets`.
             register_coco_instances(
@@ -154,8 +162,16 @@ def register_all_nlos(root):
                 os.path.join(root, image_root),
             )
 
-
-
+def register_all_nlos(root):
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_NLOS.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_nlos_instances(
+                key,
+                _get_builtin_metadata(dataset_name),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
 
 def register_all_coco(root):
     for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_COCO.items():
@@ -282,4 +298,5 @@ register_all_cityscapes(_root)
 register_all_pascal_voc(_root)
 register_all_sku(_root)
 register_all_novel(_root)
+register_all_nlos_gt(_root)
 register_all_nlos(_root)

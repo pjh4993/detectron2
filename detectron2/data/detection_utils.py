@@ -207,6 +207,31 @@ def check_image_size(dataset_dict, image):
     if "height" not in dataset_dict:
         dataset_dict["height"] = image.shape[0]
 
+def check_nlos_image_size(dataset_dict, image, key):
+    """
+    Raise an error if the image does not match the size specified in the dict.
+    """
+    if "width" in dataset_dict[key] or "height" in dataset_dict[key]:
+        image_wh = (image.shape[1], image.shape[0])
+        expected_wh = (dataset_dict[key]["width"], dataset_dict[key]["height"])
+        if not image_wh == expected_wh:
+            raise SizeMismatchError(
+                "Mismatched (W,H){}, got {}, expect {}".format(
+                    " for image " + dataset_dict["group_name"]
+                    if "group_name" in dataset_dict
+                    else "",
+                    image_wh,
+                    expected_wh,
+                )
+            )
+
+    # To ensure bbox always remap to original image size
+    if "width" not in dataset_dict[key]:
+        dataset_dict[key]["width"] = image.shape[1]
+    if "height" not in dataset_dict[key]:
+        dataset_dict[key]["height"] = image.shape[0]
+
+
 
 def transform_proposals(dataset_dict, image_shape, transforms, *, proposal_topk, min_box_size=0):
     """
