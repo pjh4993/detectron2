@@ -434,7 +434,7 @@ def instances_to_nlos_json(instances, img_id):
 
     results = []
     for k in range(num_instance):
-        result = {
+        result = { 
             "image_group_id": img_id,
             "category_id": classes[k],
             "bbox": boxes[k],
