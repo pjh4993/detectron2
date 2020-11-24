@@ -39,6 +39,7 @@ from detectron2.utils.collect_env import collect_env_info
 from detectron2.utils.env import seed_all_rng
 from detectron2.utils.events import CommonMetricPrinter, JSONWriter, TensorboardXWriter
 from detectron2.utils.logger import setup_logger
+from adet.data.dataset_mapper import NLOSDatasetMapper
 
 from . import hooks
 from .train_loop import SimpleTrainer
@@ -461,7 +462,10 @@ class DefaultTrainer(SimpleTrainer):
         It now calls :func:`detectron2.data.build_detection_test_loader`.
         Overwrite it if you'd like a different data loader.
         """
-        return build_detection_test_loader(cfg, dataset_name)
+        if cfg.INPUT.NLOS:
+            return build_detection_test_loader(cfg, dataset_name, mapper=NLOSDatasetMapper(cfg,False))
+        else:
+            return build_detection_test_loader(cfg, dataset_name)
 
     @classmethod
     def build_evaluator(cls, cfg, dataset_name):
