@@ -225,9 +225,9 @@ def convert_to_nlos_dict(dataset_name):
     nlos_images = []
     nlos_annotations = []
 
-    for image_id, image_dict in enumerate(dataset_dicts):
+    for image_group_id, image_dict in enumerate(dataset_dicts):
         nlos_image = {
-            "id": image_dict.get("image_id", image_id),
+            "id": image_dict.get("image_group_id", image_group_id),
             "width": image_dict["width"],
             "height": image_dict["height"],
             "file_name": image_dict["file_name"],
@@ -253,7 +253,7 @@ def convert_to_nlos_dict(dataset_name):
             #   linking annotations to images
             #   "id" field must start with 1
             nlos_annotation["id"] = len(nlos_annotations) + 1
-            nlos_annotation["image_id"] = nlos_image["id"]
+            nlos_annotation["image_group_id"] = nlos_image["id"]
             nlos_annotation["bbox"] = [round(float(x), 3) for x in bbox]
             nlos_annotation["area"] = float(area)
             nlos_annotation["iscrowd"] = annotation.get("iscrowd", 0)
@@ -270,7 +270,7 @@ def convert_to_nlos_dict(dataset_name):
         "date_created": str(datetime.datetime.now()),
         "description": "Automatically generated NLOS json file for Detectron2.",
     }
-    nlos_dict = {"info": info, "images": nlos_images, "categories": categories, "licenses": None}
+    nlos_dict = {"info": info, "image_groups": nlos_images, "categories": categories, "licenses": None}
     if len(nlos_annotations) > 0:
         nlos_dict["annotations"] = nlos_annotations
     return nlos_dict
