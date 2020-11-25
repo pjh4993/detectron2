@@ -270,7 +270,7 @@ def _get_builtin_metadata(dataset_name):
         }
     elif dataset_name == "nlos":
         return {
-            "thing_classes": ["human"]
+            "thing_classes": ["human_01", "human_02"]
         }
 
     raise KeyError("No built-in metadata for dataset {}".format(dataset_name))

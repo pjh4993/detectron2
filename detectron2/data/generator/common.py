@@ -6,11 +6,14 @@ class pascalVOCGenerator:
     def __init__(self, cfg):
         super().__init__()
         self.labelFile = LabelFile()
+        """
         self.label_names = MetadataCatalog.get(
             cfg.DATASETS.TEST[0] if len(cfg.DATASETS.TEST) else "__unused"
         ).get("thing_classes", None)
-    
-    def genFromPred(self, prediction, filename, imagePath):
+        """
+        self.label_name = ['human_01', 'human_02']
+
+    def genFromPred(self, prediction, filename, imagePath, image_id):
         assert "instances" in prediction
 
         pred_result = prediction["instances"].get_fields()
@@ -22,15 +25,16 @@ class pascalVOCGenerator:
         #shapes = {label, bndbox}
         shapes = []
         for class_id, bndbox in zip(pred_classes, pred_boxes):
+            class_id = int(image_id[1:4])
             shapes.append({
-                "label": self.label_names[class_id],
+                "label": self.label_name[class_id],
                 "bndbox": bndbox,
             })
 
         self.labelFile.savePascalVocFormat(
-            filename=filename, 
-            shapes=shapes, 
+            filename=filename,
+            shapes=shapes,
             imagePath=imagePath,
             imageData={"height": prediction["instances"].image_size[0], "width": prediction["instances"].image_size[1]},
             )
-        
+
