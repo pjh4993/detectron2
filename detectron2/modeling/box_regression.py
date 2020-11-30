@@ -21,7 +21,7 @@ class Box2BoxTransform(object):
     """
 
     def __init__(
-        self, weights: Tuple[float, float, float, float], fpn_stride: Tuple[float, float, float, float, float] = None , scale_clamp: float = _DEFAULT_SCALE_CLAMP, 
+        self, weights: Tuple[float, float, float, float], fpn_stride: Tuple[float, float, float, float, float], scale_clamp: float = _DEFAULT_SCALE_CLAMP, 
     ):
         """
         Args:
