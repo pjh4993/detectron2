@@ -121,6 +121,14 @@ _C.DATALOADER.REPEAT_THRESHOLD = 0.0
 # training dataloader will filter out images without associated annotations
 _C.DATALOADER.FILTER_EMPTY_ANNOTATIONS = True
 
+_C.DATASAMPLER = CN()
+_C.DATASAMPLER.CLASSWISE_SAMPLER = CN()
+_C.DATASAMPLER.CLASSWISE_SAMPLER.N_BATCH = 4
+_C.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY = 5
+_C.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT = 5
+_C.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY = 5
+
+
 # ---------------------------------------------------------------------------- #
 # Backbone options
 # ---------------------------------------------------------------------------- #

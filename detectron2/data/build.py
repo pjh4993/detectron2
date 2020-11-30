@@ -18,7 +18,7 @@ from .catalog import DatasetCatalog, MetadataCatalog
 from .common import AspectRatioGroupedDataset, DatasetFromList, MapDataset
 from .dataset_mapper import DatasetMapper
 from .detection_utils import check_metadata_consistency
-from .samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler
+from .samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler, ClassWiseSampler
 import json
 
 """
@@ -264,7 +264,7 @@ def get_detection_dataset_dicts(
 
 
 def build_batch_data_loader(
-    dataset, sampler, total_batch_size, *, aspect_ratio_grouping=False, num_workers=0
+    dataset, sampler, total_batch_size, *, aspect_ratio_grouping=False, class_wise_grouping = False ,num_workers=0
 ):
     """
     Build a batched dataloader for training.
@@ -288,7 +288,7 @@ def build_batch_data_loader(
     ), "Total batch size ({}) must be divisible by the number of gpus ({}).".format(
         total_batch_size, world_size
     )
-
+ 
     batch_size = total_batch_size // world_size
     if aspect_ratio_grouping:
         data_loader = torch.utils.data.DataLoader(
@@ -300,6 +300,15 @@ def build_batch_data_loader(
             worker_init_fn=worker_init_reset_seed,
         )  # yield individual mapped dict
         return AspectRatioGroupedDataset(data_loader, batch_size)
+    elif class_wise_grouping:
+        return torch.utils.data.DataLoader(
+            dataset,
+            sampler=sampler,
+            num_workers=num_workers,
+            batch_sampler=None,
+            collate_fn=trivial_batch_collator,  # don't batch, but yield individual elements
+            worker_init_fn=worker_init_reset_seed,
+        )
     else:
         batch_sampler = torch.utils.data.sampler.BatchSampler(
             sampler, batch_size, drop_last=True
@@ -359,6 +368,8 @@ def build_detection_train_loader(cfg, mapper=None):
             dataset_dicts, cfg.DATALOADER.REPEAT_THRESHOLD
         )
         sampler = RepeatFactorTrainingSampler(repeat_factors)
+    elif sampler_name == "ClassWiseSampler":
+        sampler = ClassWiseSampler(cfg)
     else:
         raise ValueError("Unknown training sampler: {}".format(sampler_name))
     return build_batch_data_loader(
