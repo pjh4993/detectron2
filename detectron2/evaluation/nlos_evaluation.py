@@ -330,7 +330,8 @@ class NLOSEvaluator(DatasetEvaluator):
             "keypoints": ["AP", "AP50", "AP75", "APm", "APl"],
         }[iou_type]
 
-        arng_names = ["all","small","medium","large"]
+        #arng_names = ["all","small","medium","large"]
+        ithr_names = ["50:95", "50", "75"]
 
         if nlos_eval is None:
             self._logger.warn("No predictions from the model!")
@@ -359,11 +360,22 @@ class NLOSEvaluator(DatasetEvaluator):
         for idx, name in enumerate(class_names):
             # area range index 0: all area ranges
             # max dets index -1: typically 100 per image
+            """
             for arng_idx, rng_name in enumerate(arng_names):
                 precision = precisions[:, :, idx, arng_idx, -1]
                 precision = precision[precision > -1]
                 ap = np.mean(precision) if precision.size else float("nan")
                 results_per_category.append(("{}, {}".format(name,rng_name), float(ap * 100)))
+            """
+            for ithr_idx, ithr_name in enumerate(ithr_names):
+                if ithr_idx == 0:
+                    precision = precisions[:, :, idx, :, -1]
+                else:
+                    precision = precisions[(int(ithr_name) - 50) // 5, :, idx, :, -1]
+                precision = precision[precision > -1]
+                ap = np.mean(precision) if precision.size else float("nan")
+                results_per_category.append(("{}, {}".format(name,ithr_name), float(ap * 100)))
+ 
 
         # tabulate it
         N_COLS = min(6, len(results_per_category) * 2)

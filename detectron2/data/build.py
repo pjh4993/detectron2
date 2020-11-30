@@ -164,7 +164,7 @@ def print_instances_class_histogram(dataset_dicts, class_names):
     hist_bins = np.arange(num_classes + 1)
     histogram = np.zeros((num_classes,4), dtype=np.int)
 
-    areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 32 ** 2], [32 ** 2, 96 ** 2], [96 ** 2, 1e5 ** 2]]
+    areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 96 ** 2], [96 ** 2, 128 ** 2], [128 ** 2, 1e5 ** 2]]
 
     for entry in dataset_dicts:
         annos = entry["annotations"]

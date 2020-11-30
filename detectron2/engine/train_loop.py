@@ -208,7 +208,7 @@ class SimpleTrainer(TrainerBase):
         self.data_loader = data_loader
         self._data_loader_iter = iter(data_loader)
         self.optimizer = optimizer
-
+ 
     def run_step(self):
         """
         Implement the standard training logic described above.

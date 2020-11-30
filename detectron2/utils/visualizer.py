@@ -383,8 +383,11 @@ class Visualizer:
             ]
             alpha = 0.8
         else:
-            colors = None
-            alpha = 0.5
+            #colors = None
+            colors = [
+                [x / 255 for x in self.metadata.thing_colors[c]] for c in classes
+            ]
+            alpha = 0.8
 
         if self._instance_mode == ColorMode.IMAGE_BW:
             self.output.img = self._create_grayscale_image(
@@ -530,6 +533,10 @@ class Visualizer:
                 colors = [
                     self._jitter([x / 255 for x in self.metadata.thing_colors[c]]) for c in labels
                 ]
+            else:
+                colors = [
+                    [(x + 200) % 255 / 255 for x in self.metadata.thing_colors[c]] for c in labels
+                ]
             names = self.metadata.get("thing_classes", None)
             if names:
                 labels = [names[i] for i in labels]
@@ -538,7 +545,7 @@ class Visualizer:
                 for i, a in zip(labels, annos)
             ]
             self.overlay_instances(
-                labels=labels, boxes=boxes, masks=masks, keypoints=keypts, assigned_colors=colors
+                labels=labels, boxes=boxes, masks=masks, keypoints=keypts, assigned_colors=colors, is_gt=True
             )
 
         sem_seg = dic.get("sem_seg", None)
@@ -560,7 +567,8 @@ class Visualizer:
         masks=None,
         keypoints=None,
         assigned_colors=None,
-        alpha=0.5
+        alpha=0.5,
+        is_gt=False
     ):
         """
         Args:
@@ -654,7 +662,10 @@ class Visualizer:
                 # first get a box
                 if boxes is not None:
                     x0, y0, x1, y1 = boxes[i]
-                    text_pos = (x0, y0)  # if drawing boxes, put text on the box corner.
+                    if is_gt:
+                        text_pos = (x0, y0)  # if drawing boxes, put text on the box corner.
+                    else:
+                        text_pos = (x0, y1)
                     horiz_align = "left"
                 elif masks is not None:
                     x0, y0, x1, y1 = masks[i].bbox()

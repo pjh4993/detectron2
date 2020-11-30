@@ -121,7 +121,7 @@ Category ids in annotations are not in [1, #categories]! We'll apply a mapping f
         assert len(set(ann_ids)) == len(ann_ids), "Annotation ids in '{}' are not unique!".format(
             json_file
         )
-
+ 
     img_groups_anns = list(zip(img_groups, anns))
 
     logger.info("Loaded {} images in NLOS format from {}".format(len(img_groups_anns), json_file))

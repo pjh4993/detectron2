@@ -187,6 +187,27 @@ KEYPOINT_CONNECTION_RULES = [
     ("right_knee", "right_ankle", (255, 195, 77)),
 ]
 
+NLOS_CATEGORIES = [
+    {"color": [220, 20, 60], "isthing": 1, "id": 1, "name": "human_01"},
+    {"color": [220, 20, 60], "isthing": 1, "id": 2, "name": "human_02"},
+    #{"color": [119, 11, 32], "isthing": 1, "id": 2, "name": "human_02"},
+]
+
+def _get_nlos_instances_meta():
+    thing_ids = [k["id"] for k in NLOS_CATEGORIES if k["isthing"] == 1]
+    thing_colors = [k["color"] for k in NLOS_CATEGORIES if k["isthing"] == 1]
+    assert len(thing_ids) == 2, len(thing_ids)
+    # Mapping from the incontiguous NLOS category id to an id in [0, 79]
+    thing_dataset_id_to_contiguous_id = {k: i for i, k in enumerate(thing_ids)}
+    thing_classes = [k["name"] for k in NLOS_CATEGORIES if k["isthing"] == 1]
+    ret = {
+        "thing_dataset_id_to_contiguous_id": thing_dataset_id_to_contiguous_id,
+        "thing_classes": thing_classes,
+        "thing_colors": thing_colors,
+    }
+    return ret
+
+
 
 def _get_coco_instances_meta():
     thing_ids = [k["id"] for k in COCO_CATEGORIES if k["isthing"] == 1]
@@ -264,11 +285,12 @@ def _get_builtin_metadata(dataset_name):
             "thing_classes": CITYSCAPES_THING_CLASSES,
             "stuff_classes": CITYSCAPES_STUFF_CLASSES,
         }
-    elif dataset_name in ["SKU", "novel", "nlosGT"]:
+    elif dataset_name in ["SKU", "novel"]:
         return {
             "thing_classes": ["object"]
         }
-    elif dataset_name == "nlos":
+    elif dataset_name in ["nlos", "nlosGT"]:
+        return _get_nlos_instances_meta()
         return {
             "thing_classes": ["human_01", "human_02"]
         }

@@ -128,7 +128,7 @@ _PREDEFINED_SPLITS_NLOS = {}
 _PREDEFINED_SPLITS_NLOS["nlos"] = {
     "nlos_2020_train": ("nlos/images", "nlos/annotations/instances_train2020.json"),
     "nlos_2020_valid": ("nlos/images", "nlos/annotations/instances_valid2020.json"),
-    "nlos_crop_2020_train": ("nlos/croppedImages", "nlos/annotations/instances_train2020_cropped.json"),
+    #"nlos_crop_2020_train": ("nlos/croppedImages", "nlos/annotations/instances_train2020_cropped.json"),
 
 }
 
