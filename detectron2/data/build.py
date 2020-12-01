@@ -1,4 +1,5 @@
 # Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+from collections import defaultdict
 import itertools
 import logging
 import numpy as np
@@ -15,8 +16,8 @@ from detectron2.utils.env import seed_all_rng
 from detectron2.utils.logger import log_first_n
 
 from .catalog import DatasetCatalog, MetadataCatalog
-from .common import AspectRatioGroupedDataset, DatasetFromList, MapDataset
-from .dataset_mapper import DatasetMapper
+from .common import AspectRatioGroupedDataset, DatasetFromList, MapDataset, ClassWiseDataset
+from .dataset_mapper import ClassWiseDatasetMapper, DatasetMapper
 from .detection_utils import check_metadata_consistency
 from .samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler, ClassWiseSampler
 import json
@@ -163,18 +164,24 @@ def print_instances_class_histogram(dataset_dicts, class_names):
     num_classes = len(class_names)
     hist_bins = np.arange(num_classes + 1)
     histogram = np.zeros((num_classes,4), dtype=np.int)
+    id_per_class = defaultdict(list)
 
     areaRng = [[0 ** 2, 1e5 ** 2], [0 ** 2, 32 ** 2], [32 ** 2, 96 ** 2], [96 ** 2, 1e5 ** 2]]
 
-    for entry in dataset_dicts:
+    for entry_id, entry in enumerate(dataset_dicts):
         annos = entry["annotations"]
         classes = [x["category_id"] for x in annos if not x.get("iscrowd", 0)]
         area = [x["bbox"][2] * x["bbox"][3] for x in annos if not x.get("iscrowd",0)]
+        for cls in list(set(classes)):
+            id_per_class[cls].append(entry_id)
         for i in range(len(areaRng)):
             area_limit = areaRng[i]
             curr_area = [(area_limit[0] < ar and area_limit[1] >= ar) for ar in area]
             histogram[:,i] += np.histogram(np.array(classes)[curr_area], bins=hist_bins)[0]
         #histogram += np.histogram(classes, bins=hist_bins)[0]
+
+    for k, v in id_per_class.items():
+        id_per_class[k] = torch.tensor(v)
 
     N_COLS = min(6, len(class_names) * 2)
 
@@ -214,9 +221,11 @@ def print_instances_class_histogram(dataset_dicts, class_names):
         key="message",
     )
 
+    return id_per_class
+
 
 def get_detection_dataset_dicts(
-    dataset_names, filter_empty=True, min_keypoints=0, proposal_files=None
+    dataset_names, filter_empty=True, min_keypoints=0, proposal_files=None, class_wise_grouping=False
 ):
     """
     Load and prepare dataset dicts for instance detection/segmentation and semantic segmentation.
@@ -257,14 +266,17 @@ def get_detection_dataset_dicts(
         try:
             class_names = MetadataCatalog.get(dataset_names[0]).thing_classes
             check_metadata_consistency("thing_classes", dataset_names)
-            print_instances_class_histogram(dataset_dicts, class_names)
+            id_per_class = print_instances_class_histogram(dataset_dicts, class_names)
+            if class_wise_grouping:
+                return dataset_dicts, id_per_class
         except AttributeError:  # class names are not available for this dataset
             pass
-    return dataset_dicts
+
+    return dataset_dicts, None
 
 
 def build_batch_data_loader(
-    dataset, sampler, total_batch_size, *, aspect_ratio_grouping=False, class_wise_grouping = False ,num_workers=0
+    dataset, sampler, total_batch_size, *, aspect_ratio_grouping=False, num_workers=0
 ):
     """
     Build a batched dataloader for training.
@@ -300,15 +312,6 @@ def build_batch_data_loader(
             worker_init_fn=worker_init_reset_seed,
         )  # yield individual mapped dict
         return AspectRatioGroupedDataset(data_loader, batch_size)
-    elif class_wise_grouping:
-        return torch.utils.data.DataLoader(
-            dataset,
-            sampler=sampler,
-            num_workers=num_workers,
-            batch_sampler=None,
-            collate_fn=trivial_batch_collator,  # don't batch, but yield individual elements
-            worker_init_fn=worker_init_reset_seed,
-        )
     else:
         batch_sampler = torch.utils.data.sampler.BatchSampler(
             sampler, batch_size, drop_last=True
@@ -343,18 +346,23 @@ def build_detection_train_loader(cfg, mapper=None):
     Returns:
         an infinite iterator of training data
     """
-    dataset_dicts = get_detection_dataset_dicts(
+    class_wise_grouping = cfg.DATALOADER.SAMPLER_TRAIN=='ClassWiseSampler'
+    dataset_dicts, id_per_class = get_detection_dataset_dicts(
         cfg.DATASETS.TRAIN,
         filter_empty=cfg.DATALOADER.FILTER_EMPTY_ANNOTATIONS,
         min_keypoints=cfg.MODEL.ROI_KEYPOINT_HEAD.MIN_KEYPOINTS_PER_IMAGE
         if cfg.MODEL.KEYPOINT_ON
         else 0,
         proposal_files=cfg.DATASETS.PROPOSAL_FILES_TRAIN if cfg.MODEL.LOAD_PROPOSALS else None,
+        class_wise_grouping = class_wise_grouping
     )
     dataset = DatasetFromList(dataset_dicts, copy=False)
 
     if mapper is None:
         mapper = DatasetMapper(cfg, True)
+    elif class_wise_grouping is True:
+        dataset = ClassWiseDataset(dataset)
+        mapper = ClassWiseDatasetMapper(cfg, True)
     dataset = MapDataset(dataset, mapper)
 
     sampler_name = cfg.DATALOADER.SAMPLER_TRAIN
@@ -369,7 +377,7 @@ def build_detection_train_loader(cfg, mapper=None):
         )
         sampler = RepeatFactorTrainingSampler(repeat_factors)
     elif sampler_name == "ClassWiseSampler":
-        sampler = ClassWiseSampler(cfg)
+        sampler = ClassWiseSampler(cfg, id_per_class)
     else:
         raise ValueError("Unknown training sampler: {}".format(sampler_name))
     return build_batch_data_loader(
@@ -398,7 +406,8 @@ def build_detection_test_loader(cfg, dataset_name, mapper=None):
         DataLoader: a torch DataLoader, that loads the given detection
         dataset, with test-time transformation and batching.
     """
-    dataset_dicts = get_detection_dataset_dicts(
+    class_wise_grouping = cfg.DATALOADER.SAMPLER_TRAIN=='ClassWiseSampler'
+    dataset_dicts, id_per_class = get_detection_dataset_dicts(
         [dataset_name],
         filter_empty=False,
         proposal_files=[
@@ -406,12 +415,15 @@ def build_detection_test_loader(cfg, dataset_name, mapper=None):
         ]
         if cfg.MODEL.LOAD_PROPOSALS
         else None,
+        class_wise_grouping = class_wise_grouping
     )
 
     dataset = DatasetFromList(dataset_dicts)
     if mapper is None:
         mapper = DatasetMapper(cfg, False)
-        #mapper = DatasetMapper(cfg, True)
+    elif class_wise_grouping is True:
+        mapper = ClassWiseDatasetMapper(cfg, False)
+
     dataset = MapDataset(dataset, mapper)
 
     sampler = InferenceSampler(len(dataset))

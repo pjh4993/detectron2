@@ -55,30 +55,36 @@ class TrainingSampler(Sampler):
 
 class ClassWiseSampler(Sampler):
 
-    def __init__(self, cfg, seed: Optional[int] = None):
-        self.n_way = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
+    def __init__(self, cfg, m_ind, seed: Optional[int] = None):
+        self.n_cls = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
         self.n_per = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT + cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
 
         if seed is None:
             seed = comm.shared_random_seed()
         self._seed = int(seed)
+        self.m_ind = m_ind
+        self.label_key = list(m_ind.keys())
 
         self._rank = comm.get_rank()
         self._world_size = comm.get_world_size()
 
+        self.g = torch.Generator()
+        self.g.manual_seed(self._seed)
+
     def __iter__(self):
-        g = torch.Generator()
-        g.manual_seed(self._seed)
 
         batch = []
-        classes = torch.randperm(len(self.m_ind), generator=g)[: self.n_cls]
+        classes = torch.randperm(len(self.m_ind), generator=self.g)[: self.n_cls]
         for c in classes:
+            c = self.label_key[c.item()]
             l = self.m_ind[c]
-            pos = torch.randperm(len(l), generator=g)[: self.n_per]
+            pos = torch.randperm(len(l), generator=self.g)[: self.n_per]
             batch.append(l[pos])
         batch = torch.stack(batch).t().reshape(-1)
         yield batch
 
+    def set_id_list(self, dataset):
+        self.m_ind = None
 
 class RepeatFactorTrainingSampler(Sampler):
     """

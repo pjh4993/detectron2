@@ -35,12 +35,17 @@ class MapDataset(data.Dataset):
 
     def __getitem__(self, idx):
         retry_count = 0
-        cur_idx = int(idx)
+        cur_idx = idx
+        if isinstance(idx, int):
+            cur_idx = int(cur_idx)
+        else:
+            cur_idx = cur_idx.tolist()
 
         while True:
             data = self._map_func(self._dataset[cur_idx])
             if data is not None:
-                self._fallback_candidates.add(cur_idx)
+                if isinstance(idx, int):
+                    self._fallback_candidates.add(cur_idx)
                 return data
 
             # _map_func fails for this idx, use a random new index from the pool
@@ -111,6 +116,12 @@ class DatasetFromList(data.Dataset):
         else:
             return self._lst[idx]
 
+class ClassWiseDataset(DatasetFromList):
+    def __getitem__(self, idxs):
+        group = []
+        for idx in idxs:
+            group.append(super().__getitem__(idx))
+        return group
 
 class AspectRatioGroupedDataset(data.IterableDataset):
     """

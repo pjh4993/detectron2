@@ -189,3 +189,23 @@ class DatasetMapper:
                 instances.gt_boxes = instances.gt_masks.get_bounding_boxes()
             dataset_dict["instances"] = utils.filter_empty_instances(instances)
         return dataset_dict
+
+
+class ClassWiseDatasetMapper(DatasetMapper):
+    def __init__(self, cfg, is_train):
+        super().__init__(cfg, is_train)
+        self.n_way = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
+        self.k_shot = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT
+        self.q_query = cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
+
+    def __call__(self, dataset_dict):
+        ClassWiseDicts = []
+        for entry in dataset_dict:
+            ClassWiseDicts.append(super().__call__(entry))
+        
+        ClassWiseDicts = np.split(np.array(ClassWiseDicts),self.n_way)
+        
+        ClassWiseDicts = [[way_dict[:self.k_shot].tolist(), way_dict[self.k_shot:].tolist()]  for way_dict in ClassWiseDicts]
+
+        return ClassWiseDicts
+
