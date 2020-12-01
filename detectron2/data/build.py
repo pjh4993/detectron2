@@ -16,7 +16,7 @@ from detectron2.utils.env import seed_all_rng
 from detectron2.utils.logger import log_first_n
 
 from .catalog import DatasetCatalog, MetadataCatalog
-from .common import AspectRatioGroupedDataset, DatasetFromList, MapDataset, ClassWiseDataset
+from .common import AspectRatioGroupedDataset, ClassWiseMapDataset, DatasetFromList, MapDataset, ClassWiseDataset
 from .dataset_mapper import ClassWiseDatasetMapper, DatasetMapper
 from .detection_utils import check_metadata_consistency
 from .samplers import InferenceSampler, RepeatFactorTrainingSampler, TrainingSampler, ClassWiseSampler
@@ -363,7 +363,11 @@ def build_detection_train_loader(cfg, mapper=None):
     elif class_wise_grouping is True:
         dataset = ClassWiseDataset(dataset)
         mapper = ClassWiseDatasetMapper(cfg, True)
-    dataset = MapDataset(dataset, mapper)
+    
+    if class_wise_grouping:
+        dataset = ClassWiseMapDataset(dataset, mapper)
+    else:
+        dataset = MapDataset(dataset, mapper)
 
     sampler_name = cfg.DATALOADER.SAMPLER_TRAIN
     logger = logging.getLogger(__name__)

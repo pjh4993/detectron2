@@ -35,17 +35,12 @@ class MapDataset(data.Dataset):
 
     def __getitem__(self, idx):
         retry_count = 0
-        cur_idx = idx
-        if isinstance(idx, int):
-            cur_idx = int(cur_idx)
-        else:
-            cur_idx = cur_idx.tolist()
+        cur_idx = int(idx)
 
         while True:
             data = self._map_func(self._dataset[cur_idx])
             if data is not None:
-                if isinstance(idx, int):
-                    self._fallback_candidates.add(cur_idx)
+                self._fallback_candidates.add(cur_idx)
                 return data
 
             # _map_func fails for this idx, use a random new index from the pool
@@ -60,6 +55,16 @@ class MapDataset(data.Dataset):
                         idx, retry_count
                     )
                 )
+
+class ClassWiseMapDataset(MapDataset):
+     def __getitem__(self, idx_dict):
+        support_idx_list = idx_dict["support_set"]
+        query_idx_list = idx_dict["query_set"]
+        
+        idx_dict["support_set"] = self._map_func(self._dataset[support_idx_list])
+        idx_dict["query_set"] = self._map_func(self._dataset[query_idx_list])
+
+        return idx_dict
 
 
 class DatasetFromList(data.Dataset):

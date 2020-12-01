@@ -57,13 +57,15 @@ class ClassWiseSampler(Sampler):
 
     def __init__(self, cfg, m_ind, seed: Optional[int] = None):
         self.n_cls = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
-        self.n_per = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT + cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
+        self.k_shot = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT
+        self.q_query = cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
 
         if seed is None:
             seed = comm.shared_random_seed()
         self._seed = int(seed)
         self.m_ind = m_ind
         self.label_key = list(m_ind.keys())
+        self.label_key.sort()
 
         self._rank = comm.get_rank()
         self._world_size = comm.get_world_size()
@@ -73,14 +75,24 @@ class ClassWiseSampler(Sampler):
 
     def __iter__(self):
 
-        batch = []
+        support_set = []
+        query_set = []
         classes = torch.randperm(len(self.m_ind), generator=self.g)[: self.n_cls]
         for c in classes:
             c = self.label_key[c.item()]
             l = self.m_ind[c]
-            pos = torch.randperm(len(l), generator=self.g)[: self.n_per]
-            batch.append(l[pos])
-        batch = torch.stack(batch).t().reshape(-1)
+            pos = torch.randperm(len(l), generator=self.g)[: self.k_shot + self.q_query]
+            support_set.append(l[pos[:self.k_shot]])
+            query_set.append(l[pos[self.k_shot:]]) 
+
+        support_set = torch.stack(support_set).t().reshape(-1)
+        query_set = torch.stack(query_set).t().reshape(-1)
+        
+        batch = {
+            "support_set": support_set,
+            "query_set" : query_set,
+            "labels": classes
+        } 
         yield batch
 
     def set_id_list(self, dataset):
