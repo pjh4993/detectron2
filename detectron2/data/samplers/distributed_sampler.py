@@ -59,6 +59,7 @@ class ClassWiseSampler(Sampler):
         self.n_cls = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
         self.k_shot = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT
         self.q_query = cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
+        self.n_batch = cfg.SOLVER.IMS_PER_BATCH
 
         if seed is None:
             seed = comm.shared_random_seed()
@@ -74,26 +75,35 @@ class ClassWiseSampler(Sampler):
         self.g.manual_seed(self._seed)
 
     def __iter__(self):
+        start = self._rank
+        yield from itertools.islice(self._infinite_classwise_batchs(), start, None, self._world_size)
 
-        support_set = []
-        query_set = []
-        classes = torch.randperm(len(self.m_ind), generator=self.g)[: self.n_cls]
-        for c in classes:
-            c = self.label_key[c.item()]
-            l = self.m_ind[c]
-            pos = torch.randperm(len(l), generator=self.g)[: self.k_shot + self.q_query]
-            support_set.append(l[pos[:self.k_shot]])
-            query_set.append(l[pos[self.k_shot:]]) 
+    def _infinite_classwise_batchs(self):
+        g = torch.Generator()
+        g.manual_seed(self._seed)
+        while True:
+            batches = []
+            for _ in range(self._world_size):
+                support_set = []
+                query_set = []
+                classes = torch.randperm(len(self.m_ind), generator=self.g)[: self.n_cls]
+                for c in classes:
+                    c = self.label_key[c.item()]
+                    l = self.m_ind[c]
+                    pos = torch.randperm(len(l), generator=self.g)[: self.k_shot + self.q_query]
+                    support_set.append(l[pos[:self.k_shot]])
+                    query_set.append(l[pos[self.k_shot:]]) 
 
-        support_set = torch.stack(support_set).t().reshape(-1)
-        query_set = torch.stack(query_set).t().reshape(-1)
-        
-        batch = {
-            "support_set": support_set,
-            "query_set" : query_set,
-            "labels": classes
-        } 
-        yield batch
+                support_set = torch.stack(support_set).t().reshape(-1)
+                query_set = torch.stack(query_set).t().reshape(-1)
+                
+                batch = {
+                    "support_set": support_set,
+                    "query_set" : query_set,
+                    "labels": classes
+                } 
+                batches.append(batch)
+            yield batches
 
     def set_id_list(self, dataset):
         self.m_ind = None

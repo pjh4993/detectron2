@@ -57,7 +57,11 @@ class MapDataset(data.Dataset):
                 )
 
 class ClassWiseMapDataset(MapDataset):
-     def __getitem__(self, idx_dict):
+    def __init__(self, dataset, map_func):
+        super().__init__(dataset, map_func)
+
+    def __getitem__(self, idx_dict):
+        idx_dict = idx_dict[0]
         support_idx_list = idx_dict["support_set"]
         query_idx_list = idx_dict["query_set"]
         
@@ -122,11 +126,15 @@ class DatasetFromList(data.Dataset):
             return self._lst[idx]
 
 class ClassWiseDataset(DatasetFromList):
+    def __init__(self, lst: list, copy: bool = True, serialize: bool = True):
+        super().__init__(lst, copy, serialize)
+
     def __getitem__(self, idxs):
         group = []
         for idx in idxs:
             group.append(super().__getitem__(idx))
         return group
+
 
 class AspectRatioGroupedDataset(data.IterableDataset):
     """

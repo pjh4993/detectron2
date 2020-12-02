@@ -203,9 +203,5 @@ class ClassWiseDatasetMapper(DatasetMapper):
         for entry in dataset_dict:
             ClassWiseDicts.append(super().__call__(entry))
         
-        #ClassWiseDicts = np.split(np.array(ClassWiseDicts),self.n_way)
-        
-        #ClassWiseDicts = [[way_dict[:self.k_shot].tolist(), way_dict[self.k_shot:].tolist()]  for way_dict in ClassWiseDicts]
-
         return ClassWiseDicts
 

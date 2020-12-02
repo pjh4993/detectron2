@@ -17,7 +17,7 @@ class ImageList(object):
         image_sizes (list[tuple[int, int]]): each tuple is (h, w)
     """
 
-    def __init__(self, tensor: torch.Tensor, image_sizes: List[Tuple[int, int]]):
+    def __init__(self, tensor: torch.Tensor, image_sizes: List[Tuple[int, int]], size_divisibility=None):
         """
         Arguments:
             tensor (Tensor): of shape (N, H, W) or (N, C_1, ..., C_K, H, W) where K >= 1
@@ -26,6 +26,7 @@ class ImageList(object):
         """
         self.tensor = tensor
         self.image_sizes = image_sizes
+        self.size_divisibility = size_divisibility
 
     def __len__(self) -> int:
         return len(self.image_sizes)
@@ -40,8 +41,23 @@ class ImageList(object):
         Returns:
             Tensor: an image of shape (H, W) or (C_1, ..., C_K, H, W) where K >= 1
         """
-        size = self.image_sizes[idx]
-        return self.tensor[idx, ..., : size[0], : size[1]]
+        if isinstance(idx, int):
+            size = self.image_sizes[idx]
+            return self.tensor[idx, ..., : size[0], : size[1]]
+        else:
+            size = [self.image_sizes[x] for x in idx]
+            idx_tensor = self.tensor[idx]
+            return ImageList(idx_tensor, size, size_divisibility=self.size_divisibility)
+
+    @staticmethod
+    def extend(image_list) -> "ImageList":
+        idx_tensor = torch.cat([x.tensor for x in image_list], dim=0)
+        new_size = []
+        for id_size in [x.size for x in image_list]:
+            new_size.extend(id_size)
+        size_divisibility = image_list[0].size_divisibility
+        return ImageList(idx_tensor, new_size, size_divisibility=size_divisibility)
+
 
     @torch.jit.unused
     def to(self, *args: Any, **kwargs: Any) -> "ImageList":
@@ -117,4 +133,4 @@ class ImageList(object):
             for img, pad_img in zip(tensors, batched_imgs):
                 pad_img[..., : img.shape[-2], : img.shape[-1]].copy_(img)
 
-        return ImageList(batched_imgs.contiguous(), image_sizes)
+        return ImageList(batched_imgs.contiguous(), image_sizes, size_divisibility)
