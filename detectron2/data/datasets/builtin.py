@@ -121,7 +121,23 @@ _PREDEFINED_SPLITS_VOC_COCO["VOC_COCO"] = {
     "voc_coco_val_2012": ("VOC2012/JPEGImages", "VOC2012/json/voc2012_val_custom.json"),
     "voc_coco_train_aug_2012": ("VOC2012/JPEGImages", "VOC2012/json/voc2012_train_aug_custom.json"),
 }
+_PREDEFINED_SPLITS_SYNTHETIC_SKU = {}
+_PREDEFINED_SPLITS_SYNTHETIC_SKU["syntheticSKU"] = {
+    "syntheticSKU_train": ("syntheticSKU/images", "syntheticSKU/json/train.json"),
+    "syntheticSKU_valid": ("syntheticSKU/images", "syntheticSKU/json/valid.json"),
+    "syntheticSKU_test": ("syntheticSKU/images", "syntheticSKU/json/test.json"),
+}
 
+def register_all_synthetic_SKU(root):
+    for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_SYNTHETIC_SKU.items():
+        for key, (image_root, json_file) in splits_per_dataset.items():
+            # Assume pre-defined datasets live in `./datasets`.
+            register_coco_instances(
+                key,
+                _get_builtin_metadata(dataset_name),
+                os.path.join(root, json_file) if "://" not in json_file else json_file,
+                os.path.join(root, image_root),
+            )
 
 def register_all_sku(root):
     for dataset_name, splits_per_dataset in _PREDEFINED_SPLITS_SKU.items():
@@ -284,3 +300,4 @@ register_all_pascal_voc(_root)
 register_all_sku(_root)
 register_all_novel(_root)
 register_all_voc_coco(_root)
+register_all_synthetic_SKU(_root)

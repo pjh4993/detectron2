@@ -279,5 +279,14 @@ def _get_builtin_metadata(dataset_name):
                               "dog", "horse", "motorbike", "person", "pottedplant",
                               "sheep", "sofa", "train", "tvmonitor"]
         }
+    elif dataset_name == "syntheticSKU":
+        return {
+            "thing_classes": [
+                "abcchocolate", "bacchus", "bingraebananamilk", "chikchok", "chilsungcider", "chocoemon",
+                "chocosongi", "cocacola", "denmarkdrinkingyoghurt", "hersheysdrink", "homerunball",
+                "maxbong", "minutemade", "monster", "pepero", "pocachip", "pocarisweat", "saewookkang",
+                "vita500", "welchs"
+            ]
+        }
 
     raise KeyError("No built-in metadata for dataset {}".format(dataset_name))

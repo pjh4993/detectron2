@@ -225,7 +225,6 @@ class SimpleTrainer(TrainerBase):
         If you want to do something with the losses, you can wrap the model.
         """
         loss_dict = self.model(data)
-        print(loss_dict)
         losses = sum(loss_dict.values())
 
         """
