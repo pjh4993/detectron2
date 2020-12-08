@@ -48,7 +48,7 @@ class ImageList(object):
             size = [self.image_sizes[x] for x in idx]
             idx_tensor = self.tensor[idx]
             return ImageList(idx_tensor, size, size_divisibility=self.size_divisibility)
-
+    
     @staticmethod
     def extend(image_list) -> "ImageList":
         idx_tensor = torch.cat([x.tensor for x in image_list], dim=0)
