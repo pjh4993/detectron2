@@ -194,6 +194,7 @@ class DatasetMapper:
 class ClassWiseDatasetMapper(DatasetMapper):
     def __init__(self, cfg, is_train):
         super().__init__(cfg, is_train)
+        self.is_train = True
         #self.n_way = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
         #self.k_shot = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT
         #self.q_query = cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY

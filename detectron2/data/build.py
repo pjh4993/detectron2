@@ -381,7 +381,7 @@ def build_detection_train_loader(cfg, mapper=None):
         )
         sampler = RepeatFactorTrainingSampler(repeat_factors)
     elif sampler_name == "ClassWiseSampler":
-        sampler = ClassWiseSampler(cfg, id_per_class)
+        sampler = ClassWiseSampler(cfg, id_per_class, is_train=True)
     else:
         raise ValueError("Unknown training sampler: {}".format(sampler_name))
     return build_batch_data_loader(
@@ -423,14 +423,19 @@ def build_detection_test_loader(cfg, dataset_name, mapper=None):
     )
 
     dataset = DatasetFromList(dataset_dicts)
-    if mapper is None:
-        mapper = DatasetMapper(cfg, False)
-    elif class_wise_grouping is True:
+    sampler = None 
+
+    if class_wise_grouping:
+        dataset = ClassWiseDataset(dataset)
         mapper = ClassWiseDatasetMapper(cfg, False)
+        dataset = ClassWiseMapDataset(dataset, mapper)
+        sampler = ClassWiseSampler(cfg, id_per_class, is_train=False)
+    else:
+        if mapper is None:
+            mapper = DatasetMapper(cfg, False)
+        dataset = MapDataset(dataset, mapper)
+        sampler = InferenceSampler(len(dataset))
 
-    dataset = MapDataset(dataset, mapper)
-
-    sampler = InferenceSampler(len(dataset))
     #sampler = TrainingSampler(len(dataset))
     # Always use 1 image per worker during inference since this is the
     # standard when reporting inference time in papers.

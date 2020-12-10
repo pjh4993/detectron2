@@ -55,11 +55,15 @@ class TrainingSampler(Sampler):
 
 class ClassWiseSampler(Sampler):
 
-    def __init__(self, cfg, m_ind, seed: Optional[int] = None):
+    def __init__(self, cfg, m_ind, seed: Optional[int] = None, is_train = True):
+        self.is_train = is_train
         self.n_cls = cfg.DATASAMPLER.CLASSWISE_SAMPLER.N_WAY
         self.k_shot = cfg.DATASAMPLER.CLASSWISE_SAMPLER.K_SHOT
-        self.q_query = cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
         self.n_batch = cfg.SOLVER.IMS_PER_BATCH
+        if self.is_train:
+            self.q_query = cfg.DATASAMPLER.CLASSWISE_SAMPLER.Q_QUERY
+        else:
+            self.q_query = 1
 
         if seed is None:
             seed = comm.shared_random_seed()
@@ -76,7 +80,13 @@ class ClassWiseSampler(Sampler):
 
     def __iter__(self):
         start = self._rank
-        yield from itertools.islice(self._infinite_classwise_batchs(), start, None, self._world_size)
+        if self.is_train:
+            yield from itertools.islice(self._infinite_classwise_batchs(), start, None, self._world_size)
+        else:
+            yield from itertools.islice(self._infinite_classwise_batchs(), start, self.__len__(), self._world_size)
+            
+    def __len__(self):
+        return sum([len(x) for x in list(self.m_ind.values())]) // 100
 
     def _infinite_classwise_batchs(self):
         g = torch.Generator()

@@ -21,7 +21,7 @@ class DatasetEvaluator:
     and produce evaluation results in the end (by :meth:`evaluate`).
     """
 
-    def reset(self):
+    def reset(self, dataset_len):
         """
         Preparation for a new round of evaluation.
         Should be called before starting a round of evaluation.
@@ -77,9 +77,10 @@ class DatasetEvaluators(DatasetEvaluator):
         super().__init__()
         self._evaluators = evaluators
 
-    def reset(self):
+    def reset(self, dataset_len):
         for evaluator in self._evaluators:
             evaluator.reset()
+            evaluator.dataset_len = dataset_len
 
     def process(self, inputs, outputs):
         for evaluator in self._evaluators:
@@ -126,7 +127,7 @@ def inference_on_dataset(model, data_loader, evaluator):
     if evaluator is None:
         # create a no-op evaluator
         evaluator = DatasetEvaluators([])
-    evaluator.reset()
+    evaluator.reset(total)
 
     num_warmup = min(5, total - 1)
     start_time = time.perf_counter()
