@@ -59,6 +59,8 @@ if __name__ == "__main__":
 
     dicts = list(DatasetCatalog.get(args.dataset))
     metadata = MetadataCatalog.get(args.dataset)
+
+
     if hasattr(metadata, "thing_dataset_id_to_contiguous_id"):
 
         def dataset_id_map(ds_id):

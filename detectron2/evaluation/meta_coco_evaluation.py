@@ -163,15 +163,14 @@ class METACOCOEvaluator(DatasetEvaluator):
                 self.img_id_hash[curr_img_id] = que_input['image_id']
                 self.image_id+=1
 
-                predictions = {"image_id": curr_img_id,
-                               "supp_set_id": supp_set_id}
+                predictions = {"image_id": curr_img_id,}
 
                 gt_set = copy.deepcopy(que_input)
                 gt_set['instances'] = copy.deepcopy(gt_query)
                 gt_set['image_id'] = curr_img_id
 
                 instances = que_output["instances"].to(self._cpu_device)
-                predictions["instances"] = instances_to_coco_json(instances, curr_img_id, set_labels)
+                predictions["instances"] = instances_to_coco_json(instances, curr_img_id, set_labels, supp_set_id)
 
                 self._predictions.append(predictions)
                 self._gts.append(gt_set)
@@ -223,6 +222,9 @@ class METACOCOEvaluator(DatasetEvaluator):
         coco_results = list(itertools.chain(*[x["instances"] for x in predictions]))
 
         # unmap the category ids for COCO
+        reverse_id_mapping = {
+            k: k for k in range(len(self._metadata.thing_classes))
+        }
         if hasattr(self._metadata, "thing_dataset_id_to_contiguous_id"):
             reverse_id_mapping = {
                 v: k for k, v in self._metadata.thing_dataset_id_to_contiguous_id.items()
@@ -298,6 +300,10 @@ class METACOCOEvaluator(DatasetEvaluator):
                 gt_json_dict['annotations'].append(ann)
                 bnd_id = bnd_id + 1
             
+        if hasattr(self._metadata, 'thing_dataset_id_to_contiguous_id') is False:
+            self._metadata.thing_dataset_id_to_contiguous_id = {
+                k : k for k in range(len(self._metadata.thing_classes))
+            }
         for label_id, inner_id in self._metadata.thing_dataset_id_to_contiguous_id.items():
             label_name = self._metadata.thing_classes[inner_id]
             category_info = {'supercategory': 'none', 'id': label_id, 'name': label_name}
@@ -404,7 +410,7 @@ class METACOCOEvaluator(DatasetEvaluator):
         return results
 
 
-def instances_to_coco_json(instances, img_id, set_labels):
+def instances_to_coco_json(instances, img_id, set_labels, supp_set_id):
     """
     Dump an "Instances" object to a COCO-format json that's used for evaluation.
 
@@ -452,6 +458,7 @@ def instances_to_coco_json(instances, img_id, set_labels):
             "category_id": classes[k],
             "bbox": boxes[k],
             "score": scores[k],
+            "supp_set_id": supp_set_id
         }
         if has_mask:
             result["segmentation"] = rles[k]

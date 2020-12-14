@@ -86,7 +86,7 @@ class ClassWiseSampler(Sampler):
             yield from itertools.islice(self._infinite_classwise_batchs(), start, self.__len__(), self._world_size)
             
     def __len__(self):
-        return sum([len(x) for x in list(self.m_ind.values())]) // 100
+        return sum([len(x) for x in list(self.m_ind.values())]) // 10
 
     def _infinite_classwise_batchs(self):
         g = torch.Generator()
