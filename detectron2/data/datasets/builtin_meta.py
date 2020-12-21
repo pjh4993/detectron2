@@ -285,7 +285,7 @@ def _get_builtin_metadata(dataset_name):
                 "abcchocolate", "bacchus", "bingraebananamilk", "chikchok", "chilsungcider", "chocoemon",
                 "chocosongi", "cocacola", "denmarkdrinkingyoghurt", "hersheysdrink", "homerunball",
                 "maxbong", "minutemade", "monster", "pepero", "pocachip", "pocarisweat", "saewookkang",
-                "vita500", "welchs"
+                "vita500", "welchs", #"pepsi", "coca", "pepsimax", "cocazero"
             ]
         }
 

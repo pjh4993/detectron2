@@ -126,7 +126,7 @@ _PREDEFINED_SPLITS_SYNTHETIC_SKU["syntheticSKU"] = {
     "syntheticSKU_train": ("syntheticSKU/images", "syntheticSKU/json/train.json"),
     "syntheticSKU_valid": ("syntheticSKU/images", "syntheticSKU/json/valid.json"),
     "syntheticSKU_test": ("syntheticSKU/images", "syntheticSKU/json/test.json"),
-    "syntheticSKU_inference": ("syntheticSKU/images", "syntheticSKU/inference/coco_gt_renew.json"),
+    "syntheticSKU_real": ("syntheticSKU/images", "syntheticSKU/json/real.json"),
 }
 
 def register_all_synthetic_SKU(root):

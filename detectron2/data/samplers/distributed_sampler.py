@@ -84,7 +84,7 @@ class ClassWiseSampler(Sampler):
             yield from itertools.islice(self._infinite_classwise_batchs(), start, None, self._world_size)
         else:
             yield from itertools.islice(self._infinite_classwise_batchs(), start, self.__len__(), self._world_size)
-            
+
     def __len__(self):
         return sum([len(x) for x in list(self.m_ind.values())]) // 10
 
@@ -102,16 +102,16 @@ class ClassWiseSampler(Sampler):
                     l = self.m_ind[c]
                     pos = torch.randperm(len(l), generator=self.g)[: self.k_shot + self.q_query]
                     support_set.append(l[pos[:self.k_shot]])
-                    query_set.append(l[pos[self.k_shot:]]) 
+                    query_set.append(l[pos[self.k_shot:]])
 
                 support_set = torch.stack(support_set).t().reshape(-1)
                 query_set = torch.stack(query_set).t().reshape(-1)
-                
+
                 batch = {
                     "support_set": support_set,
                     "query_set" : query_set,
-                    "labels": classes
-                } 
+                    "labels": torch.tensor([self.label_key[x.item()] for x in classes])
+                }
                 batches.append(batch)
             yield batches
 
