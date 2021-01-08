@@ -297,24 +297,26 @@ class COCOEvaluator(DatasetEvaluator):
         net = (4, 4)
         lim = (1.0, 1.0)
         tick_base = lim[0] / net[0]
-        nrows, ncols = (3, 3)
+        nrows, ncols = (2, 2)
         xmesh, ymesh = (np.linspace(0,lim_n,net_n+1) for lim_n, net_n in zip(lim, net))
 
         fig, ax = plt.subplots(nrows=nrows, ncols=ncols, figsize=(ncols * 10, nrows * 10))
 
         ax_data_list = [
-            {"xkey":"DoG", "ykey":"DoR"},
+            {"xkey":"DoG", "ykey":"Cls"},
             {"xkey":"DoG", "ykey":"IoU"},
             {"xkey":"DoG", "ykey":"IoR"},
+            {"xkey":"Cls", "ykey":"mgIoU"},
+        ]
+        """
+        {"xkey":"IoR", "ykey":"mgIoU"},
+        {"xkey":"Cls", "ykey":"IoR"},
 
-            {"xkey":"IoU", "ykey":"mgIoU"},
-            {"xkey":"IoR", "ykey":"mgIoU"},
-            {"xkey":"Cls", "ykey":"IoR"},
+        {"xkey":"Cls", "ykey":"IoU"},
+        {"xkey":"DoG", "ykey":"DpN"},
+        {"xkey":"DoR", "ykey":"DpN"},
+        """
 
-            {"xkey":"Cls", "ykey":"IoU"},
-            {"xkey":"DoG", "ykey":"DpN"},
-            {"xkey":"DoR", "ykey":"DpN"},
-       ]
         """
         {"xkey":"Cls", "ykey":"IoU"},
         {"xkey":"DpN", "ykey":"IoU"},
@@ -394,7 +396,7 @@ class COCOEvaluator(DatasetEvaluator):
             inv = np.zeros(net_N)
             freq[whole_key[:,1], whole_key[:,0]] = count
             inv[invalid_key[:,1], invalid_key[:,0]] = invalid_count
-            freq -= inv
+            #freq -= inv
 
             """
             for graph_loc in itertools.product(x_grid, y_grid):

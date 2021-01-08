@@ -346,6 +346,54 @@ def pairwise_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     )
     return iou
 
+def pairwise_giou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
+    """
+    Given two lists of boxes of size N and M,
+    compute the IoU (intersection over union)
+    between __all__ N x M pairs of boxes.
+    The box order must be (xmin, ymin, xmax, ymax).
+
+    Args:
+        boxes1,boxes2 (Boxes): two `Boxes`. Contains N & M boxes, respectively.
+
+    Returns:
+        Tensor: IoU, sized [N,M].
+    """
+    area1 = boxes1.area()
+    area2 = boxes2.area()
+
+    boxes1, boxes2 = boxes1.tensor, boxes2.tensor
+
+    inter_width_height = torch.min(boxes1[:, None, 2:], boxes2[:, 2:]) - torch.max(
+        boxes1[:, None, :2], boxes2[:, :2]
+    )  # [N,M,2]
+
+    inter_width_height.clamp_(min=0)  # [N,M,2]
+    inter = inter_width_height.prod(dim=2)  # [N,M]
+    del inter_width_height
+
+    outer_width_height = torch.max(boxes1[:, None, 2:], boxes2[:, 2:]) - torch.min(
+        boxes1[:, None, :2], boxes2[:, :2]
+    )  # [N,M,2]
+
+    outer_width_height.clamp_(min=0)  # [N,M,2]
+    outer = outer_width_height.prod(dim=2) + 1e-6  # [N,M]
+    del outer_width_height
+
+    union = (area1[:, None] + area2 - inter)
+
+    # handle empty boxes
+    iou = torch.where(
+        inter > 0,
+        inter / (union),
+        torch.zeros(1, dtype=inter.dtype, device=inter.device),
+    )
+
+    exclusive = (outer - union) / outer
+
+    giou = ((iou - exclusive) + 1)/2
+    return giou
+
 
 def matched_boxlist_iou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     """
