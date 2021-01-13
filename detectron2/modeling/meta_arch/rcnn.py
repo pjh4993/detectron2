@@ -4,6 +4,8 @@ import numpy as np
 from typing import Optional, Tuple
 import torch
 from torch import nn
+import os
+import matplotlib.pyplot as plt
 
 from detectron2.config import configurable
 from detectron2.data.detection_utils import convert_image_to_rgb
@@ -252,6 +254,8 @@ class ProposalNetwork(nn.Module):
 
         self.register_buffer("pixel_mean", torch.Tensor(cfg.MODEL.PIXEL_MEAN).view(-1, 1, 1))
         self.register_buffer("pixel_std", torch.Tensor(cfg.MODEL.PIXEL_STD).view(-1, 1, 1))
+        self.cnt = 0
+        self.output_dir = cfg.OUTPUT_DIR
 
     @property
     def device(self):
@@ -268,6 +272,7 @@ class ProposalNetwork(nn.Module):
                 The dict contains one key "proposals" whose value is a
                 :class:`Instances` with keys "proposal_boxes" and "objectness_logits".
         """
+        self.cnt+=1
         images = [x["image"].to(self.device) for x in batched_inputs]
         images = [(x - self.pixel_mean) / self.pixel_std for x in images]
         images = ImageList.from_tensors(images, self.backbone.size_divisibility)
@@ -286,6 +291,13 @@ class ProposalNetwork(nn.Module):
         # In training, the proposals are not useful at all but we generate them anyway.
         # This makes RPN-only models about 5% slower.
         if self.training:
+            """
+            if self.cnt % 20 == 0:
+                test_image = batched_inputs[0]
+                log = proposals['log']
+                self.visualize(test_image, log)
+                pass
+            """
             return proposal_losses
 
         processed_results = []
@@ -297,3 +309,18 @@ class ProposalNetwork(nn.Module):
             r = detector_postprocess(results_per_image, height, width)
             processed_results.append({"proposals": r})
         return processed_results
+
+
+    def visualize(self, test_image, log):
+        output_path = os.path.join(self.output_dir,'visualize' ,os.path.basename(test_image['file_name']))
+        iou_pred = log['iou_pred']
+        labels = log['labels']
+        logits = log['logits']
+        iou_target = log['iou_target']
+        image_tensor = test_image['image']
+
+        for i in range(5):
+            curr_iou = iou_pred[i].sigmoid() * 2 -1
+
+
+

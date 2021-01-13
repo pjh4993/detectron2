@@ -377,10 +377,12 @@ def pairwise_giou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
     )  # [N,M,2]
 
     outer_width_height.clamp_(min=0)  # [N,M,2]
-    outer = outer_width_height.prod(dim=2) + 1e-6  # [N,M]
+    outer = outer_width_height.prod(dim=2)  # [N,M]
     del outer_width_height
 
     union = (area1[:, None] + area2 - inter)
+
+    assert (outer + 1 >= union).all()
 
     # handle empty boxes
     iou = torch.where(
@@ -389,7 +391,7 @@ def pairwise_giou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
         torch.zeros(1, dtype=inter.dtype, device=inter.device),
     )
 
-    exclusive = (outer - union) / outer
+    exclusive = (outer - union + 1) / outer
 
     giou = ((iou - exclusive) + 1)/2
     return giou
