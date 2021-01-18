@@ -1,4 +1,4 @@
-# Copyright (c) Facebook, Inc. and its affiliates. All Rights Reserved
+# Copyright (c) Facebook, Inc. and its affiliates.
 # -*- coding: utf-8 -*-
 
 import logging
@@ -23,7 +23,7 @@ ACTIVATIONS_MODE = "activations"
 
 
 # some extra ops to ignore from counting.
-_IGNORED_OPS = [
+_IGNORED_OPS = {
     "aten::add",
     "aten::add_",
     "aten::batch_norm",
@@ -37,8 +37,6 @@ _IGNORED_OPS = [
     "aten::mul",
     "aten::mul_",
     "aten::nonzero_numpy",
-    "aten::relu",
-    "aten::relu_",
     "aten::rsub",
     "aten::sigmoid",
     "aten::sigmoid_",
@@ -48,8 +46,8 @@ _IGNORED_OPS = [
     "aten::sub",
     "aten::upsample_nearest2d",
     "prim::PythonOp",
-    "torchvision::nms",
-]
+    "torchvision::nms",  # TODO estimate flop for nms
+}
 
 
 def flop_count_operators(
@@ -57,8 +55,8 @@ def flop_count_operators(
 ) -> typing.DefaultDict[str, float]:
     """
     Implement operator-level flops counting using jit.
-    This is a wrapper of fvcore.nn.flop_count, that supports standard detection models
-    in detectron2.
+    This is a wrapper of :func:`fvcore.nn.flop_count` and adds supports for standard
+    detection models in detectron2.
 
     Note:
         The function runs the input through the model to compute flops.
