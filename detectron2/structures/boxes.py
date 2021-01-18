@@ -391,7 +391,7 @@ def pairwise_giou(boxes1: Boxes, boxes2: Boxes) -> torch.Tensor:
         torch.zeros(1, dtype=inter.dtype, device=inter.device),
     )
 
-    exclusive = (outer - union + 1) / outer
+    exclusive = (outer - union + 1e-3) / outer
 
     giou = ((iou - exclusive) + 1)/2
     return giou
