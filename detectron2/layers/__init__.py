@@ -15,6 +15,9 @@ from .wrappers import (
     Linear,
     nonzero_tuple,
     cross_entropy,
+    permute_to_N_HWA_K,
+    level_first_list,
+    image_first_tensor,
 )
 from .blocks import CNNBlockBase, DepthwiseSeparableConv2d
 from .aspp import ASPP

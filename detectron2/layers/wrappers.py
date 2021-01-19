@@ -10,6 +10,7 @@ is implemented
 
 from typing import List
 import torch
+from torch.functional import Tensor
 from torch.nn import functional as F
 
 from detectron2.utils.env import TORCH_VERSION
@@ -45,6 +46,7 @@ class _NewEmptyTensorOp(torch.autograd.Function):
     def backward(ctx, grad):
         shape = ctx.shape
         return _NewEmptyTensorOp.apply(grad, shape), None
+
 
 
 class Conv2d(torch.nn.Conv2d):
@@ -136,3 +138,27 @@ def nonzero_tuple(x):
         return x.nonzero().unbind(1)
     else:
         return x.nonzero(as_tuple=True)
+
+def permute_to_N_HWA_K(tensor, K: int):
+    """
+    Transpose/reshape a tensor from (N, (Ai x K), H, W) to (N, (HxWxAi), K)
+    """
+    assert tensor.dim() == 4, tensor.shape
+    N, _, H, W = tensor.shape
+    tensor = tensor.view(N, -1, K, H, W)
+    tensor = tensor.permute(0, 3, 4, 1, 2)
+    tensor = tensor.reshape(N, -1, K)  # Size=(N,HWA,K)
+    return tensor
+
+def level_first_list(tensor, K: int, dim: int):
+    pass
+
+def image_first_tensor(tensor: List[Tensor], K: int, dim: int):
+    """
+    Transform level first list of tensor to image first tensor
+    Tensor in list must have same shape except given dim
+    """
+
+    # Need Assert for upper limitation
+
+    return cat([permute_to_N_HWA_K(x, K) for x in tensor], dim=dim)
